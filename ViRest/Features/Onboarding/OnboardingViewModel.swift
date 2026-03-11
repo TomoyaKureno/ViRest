@@ -3,6 +3,14 @@ import Combine
 
 @MainActor
 final class OnboardingViewModel: ObservableObject {
+    enum HealthImportState: Equatable {
+        case idle
+        case requestingConsent
+        case imported
+        case noData
+        case denied
+    }
+
     @Published var fullName: String = ""
     @Published var ageText: String = ""
     @Published var gender: Gender?
@@ -21,7 +29,7 @@ final class OnboardingViewModel: ObservableObject {
     @Published var environment: SportEnvironment = .both
     @Published var equipments: Set<Equipment> = [.none]
 
-    @Published var enjoyableActivities: Set<ActivityType> = [.walking]
+    @Published var enjoyableActivities: Set<ActivityType> = []
     @Published var intensityPreference: IntensityPreference = .light
     @Published var socialPreference: SocialPreference = .either
     @Published var consistency: ConsistencyLevel = .somewhatConsistent
@@ -34,6 +42,7 @@ final class OnboardingViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var importedHealthSnapshot: HealthSnapshot?
+    @Published private(set) var healthImportState: HealthImportState = .idle
 
     private let userProfileRepository: UserProfileRepository
     private let planRepository: PlanRepository
@@ -41,6 +50,7 @@ final class OnboardingViewModel: ObservableObject {
     private let recommendationEngine: RecommendationProviding
     private let notificationService: NotificationScheduling
     private let onCompleted: () -> Void
+    private var didAttemptAutoImport = false
 
     init(
         userProfileRepository: UserProfileRepository,
@@ -58,15 +68,23 @@ final class OnboardingViewModel: ObservableObject {
         self.onCompleted = onCompleted
     }
 
+    func autoImportHealthDataIfNeeded() {
+        guard !didAttemptAutoImport else { return }
+        didAttemptAutoImport = true
+        importHealthData()
+    }
+
     func importHealthData() {
         Task {
             isLoading = true
             errorMessage = nil
+            healthImportState = .requestingConsent
 
             let granted = await healthService.requestAuthorization()
-            guard granted else {
+            if !granted {
                 await MainActor.run {
-                    self.errorMessage = "Health access denied. We'll continue with manual input."
+                    self.healthImportState = .denied
+                    self.errorMessage = "Health access denied. You can enable permissions from iOS Settings > Health > Data Access."
                     self.isLoading = false
                 }
                 return
@@ -74,18 +92,66 @@ final class OnboardingViewModel: ObservableObject {
 
             let snapshot = await healthService.fetchLatestSnapshot(profile: nil)
             await MainActor.run {
-                self.importedHealthSnapshot = snapshot
-                if let height = snapshot.heightCm {
-                    self.heightCmText = String(format: "%.0f", height)
-                }
-                if let weight = snapshot.weightKg {
-                    self.weightKgText = String(format: "%.1f", weight)
-                }
-                if let rhr = snapshot.restingHeartRate {
-                    self.restingHeartRateRange = Self.range(from: rhr)
+                if self.containsImportedHealthMetrics(snapshot) {
+                    self.importedHealthSnapshot = snapshot
+                    self.healthImportState = .imported
+                    if let age = snapshot.ageYears {
+                        self.ageText = String(age)
+                    }
+                    if let biologicalGender = snapshot.biologicalGender {
+                        self.gender = biologicalGender
+                    }
+                    if let height = snapshot.heightCm {
+                        self.heightCmText = String(format: "%.0f", height)
+                    }
+                    if let weight = snapshot.weightKg {
+                        self.weightKgText = String(format: "%.1f", weight)
+                    }
+                    if let rhr = snapshot.restingHeartRate {
+                        self.restingHeartRateRange = Self.range(from: rhr)
+                    }
+                } else {
+                    self.healthImportState = .noData
+                    self.errorMessage = "No Health data available yet. If Apple Watch has data, make sure Health sync is complete."
                 }
                 self.isLoading = false
             }
+        }
+    }
+
+    func toggleHealthCondition(_ condition: HealthCondition) {
+        if condition == .none {
+            healthConditions = [.none]
+            return
+        }
+
+        if healthConditions.contains(condition) {
+            healthConditions.remove(condition)
+        } else {
+            healthConditions.insert(condition)
+        }
+        healthConditions.remove(.none)
+
+        if healthConditions.isEmpty {
+            healthConditions = [.none]
+        }
+    }
+
+    func toggleEquipment(_ equipment: Equipment) {
+        if equipment == .none {
+            equipments = [.none]
+            return
+        }
+
+        if equipments.contains(equipment) {
+            equipments.remove(equipment)
+        } else {
+            equipments.insert(equipment)
+        }
+        equipments.remove(.none)
+
+        if equipments.isEmpty {
+            equipments = [.none]
         }
     }
 
@@ -99,19 +165,12 @@ final class OnboardingViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
 
-        guard acceptedDisclaimer else {
-            errorMessage = "Please accept the medical disclaimer before generating your plan."
-            isLoading = false
-            return
-        }
-
-        guard !fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            errorMessage = "Please fill in your name."
-            isLoading = false
-            return
-        }
-
         normalizeSelections()
+
+        guard validateMandatoryInputs() else {
+            isLoading = false
+            return
+        }
 
         let profile = buildProfile()
 
@@ -143,8 +202,9 @@ final class OnboardingViewModel: ObservableObject {
     }
 
     private func buildProfile() -> UserProfileInput {
-        UserProfileInput(
-            fullName: fullName,
+        let resolvedName = fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "ViRest User" : fullName
+        return UserProfileInput(
+            fullName: resolvedName,
             age: Int(ageText),
             gender: gender,
             heightCm: Double(heightCmText),
@@ -183,10 +243,59 @@ final class OnboardingViewModel: ObservableObject {
         if equipments.isEmpty {
             equipments.insert(.none)
         }
+    }
 
-        if enjoyableActivities.isEmpty {
-            enjoyableActivities.insert(.walking)
+    private func validateMandatoryInputs() -> Bool {
+        guard let height = Double(heightCmText), height > 0 else {
+            errorMessage = "Height is required."
+            return false
         }
+
+        guard let weight = Double(weightKgText), weight > 0 else {
+            errorMessage = "Weight is required."
+            return false
+        }
+
+        guard restingHeartRateRange != .unknown else {
+            errorMessage = "Current resting heart rate is required."
+            return false
+        }
+
+        if healthConditions.isEmpty {
+            errorMessage = "Health condition is required."
+            return false
+        }
+
+        if equipments.isEmpty {
+            errorMessage = "At least one equipment option is required."
+            return false
+        }
+
+        guard targetRestingHeartRateRange != .unknown, targetRestingHeartRateRange != .above90 else {
+            errorMessage = "Target resting heart rate is required."
+            return false
+        }
+
+        guard acceptedDisclaimer else {
+            errorMessage = "Please accept the medical disclaimer before generating your plan."
+            return false
+        }
+
+        return true
+    }
+
+    private func containsImportedHealthMetrics(_ snapshot: HealthSnapshot) -> Bool {
+        snapshot.ageYears != nil ||
+        snapshot.biologicalGender != nil ||
+        snapshot.stepCount != nil ||
+        snapshot.activeEnergyKCal != nil ||
+        snapshot.heightCm != nil ||
+        snapshot.weightKg != nil ||
+        snapshot.restingHeartRate != nil ||
+        snapshot.walkingHeartRateAverage != nil ||
+        snapshot.peakHeartRate != nil ||
+        snapshot.heartRateRecovery != nil ||
+        snapshot.vo2Max != nil
     }
 
     private func normalizedHealthConditions() -> [HealthCondition] {

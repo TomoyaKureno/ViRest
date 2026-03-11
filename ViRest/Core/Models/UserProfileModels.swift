@@ -36,7 +36,7 @@ enum RestingHeartRateRange: String, Codable, CaseIterable, Identifiable {
         case .from60To70: return "60-70 bpm"
         case .from71To80: return "71-80 bpm"
         case .from81To90: return "81-90 bpm"
-        case .above90: return ">90 bpm"
+        case .above90: return "90+ bpm"
         case .unknown: return "I don't know"
         }
     }
@@ -57,9 +57,16 @@ enum RestingHeartRateRange: String, Codable, CaseIterable, Identifiable {
 enum HealthCondition: String, Codable, CaseIterable, Identifiable {
     case highBloodPressure = "high_blood_pressure"
     case heartDisease = "heart_disease"
+    case arrhythmia
+    case highCholesterol = "high_cholesterol"
     case jointProblems = "joint_problems"
     case backPain = "back_pain"
     case asthma
+    case chronicRespiratoryCondition = "chronic_respiratory_condition"
+    case type2Diabetes = "type2_diabetes"
+    case obesity
+    case postSurgeryRecovery = "post_surgery_recovery"
+    case otherMedicalCondition = "other_medical_condition"
     case none
 
     var id: String { rawValue }
@@ -68,9 +75,16 @@ enum HealthCondition: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .highBloodPressure: return "High blood pressure"
         case .heartDisease: return "Heart disease"
+        case .arrhythmia: return "Arrhythmia / irregular heartbeat"
+        case .highCholesterol: return "High cholesterol"
         case .jointProblems: return "Joint problems"
         case .backPain: return "Back pain"
         case .asthma: return "Asthma"
+        case .chronicRespiratoryCondition: return "Chronic respiratory condition"
+        case .type2Diabetes: return "Type 2 diabetes"
+        case .obesity: return "Obesity"
+        case .postSurgeryRecovery: return "Post-surgery recovery"
+        case .otherMedicalCondition: return "Other medical condition"
         case .none: return "None"
         }
     }
@@ -111,7 +125,7 @@ enum SessionDurationOption: String, Codable, CaseIterable, Identifiable {
         case .tenToTwenty: return "10-20 minutes"
         case .twentyToThirty: return "20-30 minutes"
         case .thirtyToFortyFive: return "30-45 minutes"
-        case .aboveFortyFive: return "45+ minutes"
+        case .aboveFortyFive: return "45 minutes"
         }
     }
 
@@ -120,8 +134,8 @@ enum SessionDurationOption: String, Codable, CaseIterable, Identifiable {
         case .fiveToTen: return 10
         case .tenToTwenty: return 20
         case .twentyToThirty: return 30
-        case .thirtyToFortyFive: return 40
-        case .aboveFortyFive: return 50
+        case .thirtyToFortyFive: return 45
+        case .aboveFortyFive: return 45
         }
     }
 }
@@ -192,8 +206,18 @@ enum Equipment: String, Codable, CaseIterable, Identifiable {
     case yogaMat = "yoga_mat"
     case resistanceBands = "resistance_bands"
     case dumbbells
+    case kettlebell
+    case ankleWeights = "ankle_weights"
     case bicycle
     case treadmill
+    case tennisRacket = "tennis_racket"
+    case badmintonRacket = "badminton_racket"
+    case jumpRope = "jump_rope"
+    case rowingMachine = "rowing_machine"
+    case ellipticalMachine = "elliptical_machine"
+    case swimmingPoolAccess = "swimming_pool_access"
+    case sportsCourtAccess = "sports_court_access"
+    case stairsOrHillAccess = "stairs_or_hill_access"
     case gymMembership = "gym_membership"
 
     var id: String { rawValue }
@@ -204,8 +228,18 @@ enum Equipment: String, Codable, CaseIterable, Identifiable {
         case .yogaMat: return "Yoga mat"
         case .resistanceBands: return "Resistance bands"
         case .dumbbells: return "Dumbbells"
+        case .kettlebell: return "Kettlebell"
+        case .ankleWeights: return "Ankle weights"
         case .bicycle: return "Bicycle"
         case .treadmill: return "Treadmill"
+        case .tennisRacket: return "Tennis racket"
+        case .badmintonRacket: return "Badminton racket"
+        case .jumpRope: return "Jump rope"
+        case .rowingMachine: return "Rowing machine"
+        case .ellipticalMachine: return "Elliptical machine"
+        case .swimmingPoolAccess: return "Swimming pool access"
+        case .sportsCourtAccess: return "Sports court access"
+        case .stairsOrHillAccess: return "Stairs / hill access"
         case .gymMembership: return "Gym membership"
         }
     }

@@ -44,7 +44,12 @@ final class HealthKitService: HealthDataProviding {
             HKObjectType.quantityType(forIdentifier: .vo2Max),
             HKObjectType.quantityType(forIdentifier: .heartRateRecoveryOneMinute)
         ].compactMap { $0 }
-        let readTypes = Set<HKObjectType>(quantityTypes.map { $0 as HKObjectType })
+        let characteristicTypes: [HKObjectType] = [
+            HKObjectType.characteristicType(forIdentifier: .dateOfBirth),
+            HKObjectType.characteristicType(forIdentifier: .biologicalSex)
+        ]
+        .compactMap { $0 as HKObjectType? }
+        let readTypes = Set<HKObjectType>(quantityTypes.map { $0 as HKObjectType } + characteristicTypes)
 
         return await withCheckedContinuation { continuation in
             store.requestAuthorization(toShare: [], read: readTypes) { success, _ in
@@ -54,7 +59,7 @@ final class HealthKitService: HealthDataProviding {
     }
 
     func fetchLatestSnapshot(profile: UserProfileInput?) async -> HealthSnapshot {
-        guard authorizationState == .authorized else {
+        guard HKHealthStore.isHealthDataAvailable() else {
             if let profile {
                 return HealthSnapshot.manualFallback(from: profile)
             }
@@ -87,8 +92,56 @@ final class HealthKitService: HealthDataProviding {
         async let recovery = latestQuantity(identifier: .heartRateRecoveryOneMinute, unit: HKUnit.count().unitDivided(by: .minute()))
 
         let collectedAt = Date()
+        let ageYearsValue = readAgeYears()
+        let biologicalGenderValue = readBiologicalGender()
+        let stepCountValue = await stepCount
+        let activeEnergyValue = await activeEnergy
         let heightCmValue = (await heightMeters).map { $0 * 100 }
         let weightKgValue = await weightKg
+        let restingHRValue = await restingHR
+        let walkingHRValue = await walkingHR
+        let peakHRValue = await peakHR
+        let recoveryValue = await recovery
+        let vo2Value = await vo2
+
+        let hasHealthData = hasAnyHealthData(
+            ageYears: ageYearsValue,
+            biologicalGender: biologicalGenderValue,
+            stepCount: stepCountValue,
+            activeEnergy: activeEnergyValue,
+            heightCm: heightCmValue,
+            weightKg: weightKgValue,
+            restingHeartRate: restingHRValue,
+            walkingHeartRateAverage: walkingHRValue,
+            peakHeartRate: peakHRValue,
+            heartRateRecovery: recoveryValue,
+            vo2Max: vo2Value
+        )
+
+        if !hasHealthData {
+            if let profile {
+                return HealthSnapshot.manualFallback(from: profile)
+            }
+
+            return HealthSnapshot(
+                collectedAt: collectedAt,
+                source: .manual,
+                ageYears: nil,
+                biologicalGender: nil,
+                stepCount: nil,
+                activeEnergyKCal: nil,
+                heightCm: nil,
+                weightKg: nil,
+                bmi: nil,
+                restingHeartRate: nil,
+                walkingHeartRateAverage: nil,
+                peakHeartRate: nil,
+                heartRateRecovery: nil,
+                vo2Max: nil,
+                dataFreshnessHours: nil
+            )
+        }
+
         let bmiValue: Double?
 
         if let h = heightCmValue, let w = weightKgValue, h > 0 {
@@ -99,30 +152,85 @@ final class HealthKitService: HealthDataProviding {
         }
 
         let manualResting = profile?.restingHeartRateRange.midpoint
-        let resolvedResting = await restingHR ?? manualResting
-        let source: HealthDataSource
-
-        if resolvedResting != nil && manualResting != nil {
-            source = .mixed
-        } else {
-            source = .healthKit
-        }
+        let resolvedResting = restingHRValue ?? manualResting
+        let usedManualFallbackValues = profile != nil && (heightCmValue == nil || weightKgValue == nil || restingHRValue == nil)
+        let source: HealthDataSource = usedManualFallbackValues ? .mixed : .healthKit
 
         return HealthSnapshot(
             collectedAt: collectedAt,
             source: source,
-            stepCount: await stepCount,
-            activeEnergyKCal: await activeEnergy,
+            ageYears: ageYearsValue ?? profile?.age,
+            biologicalGender: biologicalGenderValue ?? profile?.gender,
+            stepCount: stepCountValue,
+            activeEnergyKCal: activeEnergyValue,
             heightCm: heightCmValue ?? profile?.heightCm,
             weightKg: weightKgValue ?? profile?.weightKg,
             bmi: bmiValue,
             restingHeartRate: resolvedResting,
-            walkingHeartRateAverage: await walkingHR,
-            peakHeartRate: await peakHR,
-            heartRateRecovery: await recovery,
-            vo2Max: await vo2,
+            walkingHeartRateAverage: walkingHRValue,
+            peakHeartRate: peakHRValue,
+            heartRateRecovery: recoveryValue,
+            vo2Max: vo2Value,
             dataFreshnessHours: 0
         )
+    }
+
+    private func hasAnyHealthData(
+        ageYears: Int?,
+        biologicalGender: Gender?,
+        stepCount: Double?,
+        activeEnergy: Double?,
+        heightCm: Double?,
+        weightKg: Double?,
+        restingHeartRate: Double?,
+        walkingHeartRateAverage: Double?,
+        peakHeartRate: Double?,
+        heartRateRecovery: Double?,
+        vo2Max: Double?
+    ) -> Bool {
+        ageYears != nil ||
+        biologicalGender != nil ||
+        stepCount != nil ||
+        activeEnergy != nil ||
+        heightCm != nil ||
+        weightKg != nil ||
+        restingHeartRate != nil ||
+        walkingHeartRateAverage != nil ||
+        peakHeartRate != nil ||
+        heartRateRecovery != nil ||
+        vo2Max != nil
+    }
+
+    private func readAgeYears() -> Int? {
+        do {
+            let components = try store.dateOfBirthComponents()
+            guard let dobDate = Calendar.current.date(from: components) else { return nil }
+            let years = Calendar.current.dateComponents([.year], from: dobDate, to: Date()).year
+            guard let years, years > 0 else { return nil }
+            return years
+        } catch {
+            return nil
+        }
+    }
+
+    private func readBiologicalGender() -> Gender? {
+        do {
+            let biologicalSex = try store.biologicalSex().biologicalSex
+            switch biologicalSex {
+            case .female:
+                return .female
+            case .male:
+                return .male
+            case .other:
+                return .nonBinary
+            case .notSet:
+                return nil
+            @unknown default:
+                return nil
+            }
+        } catch {
+            return nil
+        }
     }
 
     private func latestQuantity(identifier: HKQuantityTypeIdentifier, unit: HKUnit) async -> Double? {
@@ -196,6 +304,8 @@ final class HealthKitService: HealthDataProviding {
         return HealthSnapshot(
             collectedAt: Date(),
             source: .manual,
+            ageYears: profile?.age,
+            biologicalGender: profile?.gender,
             stepCount: nil,
             activeEnergyKCal: nil,
             heightCm: nil,

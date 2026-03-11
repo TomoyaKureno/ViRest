@@ -9,6 +9,8 @@ enum HealthDataSource: String, Codable {
 struct HealthSnapshot: Codable, Equatable {
     var collectedAt: Date
     var source: HealthDataSource
+    var ageYears: Int? = nil
+    var biologicalGender: Gender? = nil
     var stepCount: Double?
     var activeEnergyKCal: Double?
     var heightCm: Double?
@@ -37,6 +39,8 @@ struct HealthSnapshot: Codable, Equatable {
         return HealthSnapshot(
             collectedAt: Date(),
             source: .manual,
+            ageYears: profile.age,
+            biologicalGender: profile.gender,
             stepCount: nil,
             activeEnergyKCal: nil,
             heightCm: heightCm,

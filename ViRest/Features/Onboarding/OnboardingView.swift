@@ -1,7 +1,58 @@
 import SwiftUI
 
 struct OnboardingView: View {
+    private enum OnboardingStep: Int, CaseIterable, Identifiable {
+        case healthSync
+        case physiological
+        case healthSafety
+        case timeConstraint
+        case environment
+        case preferences
+        case goals
+
+        var id: Int { rawValue }
+
+        var title: String {
+            switch self {
+            case .healthSync:
+                return "Connect Apple Health"
+            case .physiological:
+                return "Physiological - Cardiovascular"
+            case .healthSafety:
+                return "Health Safety"
+            case .timeConstraint:
+                return "Time Constraint"
+            case .environment:
+                return "Environment"
+            case .preferences:
+                return "Sport Preferences"
+            case .goals:
+                return "Weekly Goal"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .healthSync:
+                return "Import Health data first so key parameters are prefilled automatically."
+            case .physiological:
+                return "Set current and target resting HR, then confirm body metrics."
+            case .healthSafety:
+                return "Safety filters are applied before recommendation ranking."
+            case .timeConstraint:
+                return "Your available duration and weekly cadence shape session design."
+            case .environment:
+                return "Location and equipment determine activity feasibility."
+            case .preferences:
+                return "Set intensity, social mode, and consistency profile."
+            case .goals:
+                return "Set weekly activity frequency and confirm disclaimer."
+            }
+        }
+    }
+
     @ObservedObject private var viewModel: OnboardingViewModel
+    @State private var currentStep: OnboardingStep = .healthSync
 
     init(viewModel: OnboardingViewModel) {
         self.viewModel = viewModel
@@ -14,17 +65,17 @@ struct OnboardingView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
                     heroSection
-                    identitySection
-                    healthSection
-                    scheduleSection
-                    environmentSection
-                    preferenceSection
-                    goalSection
-                    disclaimerSection
-                    submitSection
+                    progressSection
+                    stepContent
+                    actionSection
                 }
                 .padding(16)
                 .padding(.bottom, 30)
+            }
+        }
+        .task(id: currentStep) {
+            if currentStep == .healthSync {
+                viewModel.autoImportHealthDataIfNeeded()
             }
         }
     }
@@ -46,10 +97,10 @@ struct OnboardingView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Build your 8-week plan")
+                    Text(currentStep.title)
                         .font(AppTypography.hero(30))
                         .foregroundStyle(AppPalette.textPrimary)
-                    Text("ViRest combines your lifestyle inputs and Apple Health metrics to generate safer cardio recommendations.")
+                    Text(currentStep.subtitle)
                         .font(AppTypography.body(15))
                         .foregroundStyle(AppPalette.textSecondary)
                 }
@@ -57,73 +108,100 @@ struct OnboardingView: View {
         }
     }
 
-    private var identitySection: some View {
+    private var progressSection: some View {
         SurfaceCard {
-            sectionTitle("Profile", icon: "person.text.rectangle")
-
-            fieldLabel("Full name")
-            TextField("Full name", text: $viewModel.fullName)
-                .textInputAutocapitalization(.words)
-                .appFieldStyle()
-
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 6) {
-                    fieldLabel("Age")
-                    TextField("Age", text: $viewModel.ageText)
-                        .keyboardType(.numberPad)
-                        .appFieldStyle()
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Step \(currentStep.rawValue + 1) of \(OnboardingStep.allCases.count)")
+                        .font(AppTypography.caption(13))
+                        .foregroundStyle(AppPalette.textSecondary)
+                    Spacer()
+                    Text("\(Int(stepProgress * 100))%")
+                        .font(AppTypography.caption(13))
+                        .foregroundStyle(AppPalette.textPrimary)
                 }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    fieldLabel("Gender")
-                    Picker("Gender", selection: $viewModel.gender) {
-                        Text("Optional").tag(Gender?.none)
-                        ForEach(Gender.allCases) { option in
-                            Text(option.displayName).tag(Gender?.some(option))
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .tint(.white)
-                }
+                ProgressView(value: stepProgress)
+                    .tint(AppPalette.accent)
             }
         }
     }
 
-    private var healthSection: some View {
-        SurfaceCard {
-            sectionTitle("Health & Safety", icon: "heart.circle")
+    @ViewBuilder
+    private var stepContent: some View {
+        switch currentStep {
+        case .healthSync:
+            healthSyncSection
+        case .physiological:
+            physiologicalSection
+        case .healthSafety:
+            healthSafetySection
+        case .timeConstraint:
+            scheduleSection
+        case .environment:
+            environmentSection
+        case .preferences:
+            preferenceSection
+        case .goals:
+            goalSection
+            disclaimerSection
+        }
+    }
 
-            Button {
-                viewModel.importHealthData()
-            } label: {
-                Label("Import from Apple Health", systemImage: "heart.text.square")
+    private var healthSyncSection: some View {
+        SurfaceCard {
+            sectionTitle("Apple Health Sync", icon: "heart.text.square")
+
+            Text("Consent popup appears automatically. If data exists in Apple Health, fields will be prefilled.")
+                .font(AppTypography.body(14))
+                .foregroundStyle(AppPalette.textSecondary)
+
+            if viewModel.isLoading {
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .tint(AppPalette.accent)
+                    Text("Requesting Health access and preparing data...")
+                        .font(AppTypography.body(14))
+                        .foregroundStyle(AppPalette.textPrimary)
+                }
             }
-            .buttonStyle(SecondaryActionButtonStyle())
+
+            switch viewModel.healthImportState {
+            case .idle, .requestingConsent:
+                EmptyView()
+            case .imported:
+                statusPill(text: "Health data imported", color: .green)
+            case .noData:
+                statusPill(text: "No Health data found yet", color: .orange)
+            case .denied:
+                statusPill(text: "Health permission denied", color: .red)
+            }
 
             if let snapshot = viewModel.importedHealthSnapshot {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Imported Metrics")
                         .font(AppTypography.caption(12))
                         .foregroundStyle(AppPalette.textSecondary)
-                    Text("RHR \(formatted(snapshot.restingHeartRate, suffix: "bpm")) · Height \(formatted(snapshot.heightCm, suffix: "cm")) · Weight \(formatted(snapshot.weightKg, suffix: "kg"))")
+                    Text("Current RHR \(formatted(snapshot.restingHeartRate, suffix: "bpm"))")
                         .font(AppTypography.body(14))
                         .foregroundStyle(AppPalette.textPrimary)
+                    Text("Weight \(formatted(snapshot.weightKg, suffix: "kg")) · Height \(formatted(snapshot.heightCm, suffix: "cm"))")
+                        .font(AppTypography.body(14))
+                        .foregroundStyle(AppPalette.textPrimary)
+                    Text("Source: \(snapshot.source.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)")
+                        .font(AppTypography.caption(12))
+                        .foregroundStyle(AppPalette.textSecondary)
                 }
                 .padding(10)
                 .background(Color.white.opacity(0.07))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
+        }
+    }
 
-            fieldLabel("Height and weight")
-            HStack(spacing: 10) {
-                TextField("Height (cm)", text: $viewModel.heightCmText)
-                    .keyboardType(.decimalPad)
-                    .appFieldStyle()
-
-                TextField("Weight (kg)", text: $viewModel.weightKgText)
-                    .keyboardType(.decimalPad)
-                    .appFieldStyle()
-            }
+    private var physiologicalSection: some View {
+        SurfaceCard {
+            sectionTitle("A. Physiological - Cardiovascular", icon: "heart.circle")
 
             fieldLabel("Current resting heart rate")
             Picker("Current Resting HR", selection: $viewModel.restingHeartRateRange) {
@@ -134,28 +212,54 @@ struct OnboardingView: View {
             .pickerStyle(.menu)
             .tint(.white)
 
-            Text("Health conditions")
-                .font(AppTypography.caption(13))
-                .foregroundStyle(AppPalette.textSecondary)
-
-            chipFlow(HealthCondition.allCases, selected: $viewModel.healthConditions) { $0.displayName }
-
-            fieldLabel("Injury limitation")
-            Picker("Injury limitation", selection: $viewModel.injuryLimitation) {
-                ForEach(InjuryLimitation.allCases) { option in
+            fieldLabel("Your target resting heart rate")
+            Picker("Target Resting HR", selection: $viewModel.targetRestingHeartRateRange) {
+                ForEach(targetHeartRateOptions) { option in
                     Text(option.displayName).tag(option)
                 }
             }
             .pickerStyle(.menu)
             .tint(.white)
+
+            fieldLabel("Weight and height")
+            HStack(spacing: 10) {
+                TextField("Weight (kg)", text: $viewModel.weightKgText)
+                    .keyboardType(.decimalPad)
+                    .appFieldStyle()
+
+                TextField("Height (cm)", text: $viewModel.heightCmText)
+                    .keyboardType(.decimalPad)
+                    .appFieldStyle()
+            }
+        }
+    }
+
+    private var healthSafetySection: some View {
+        SurfaceCard {
+            sectionTitle("B. Health Safety", icon: "cross.case")
+
+            Text("Medical conditions and injury limitations are different, but both are used for safety filtering.")
+                .font(AppTypography.body(14))
+                .foregroundStyle(AppPalette.textSecondary)
+
+            fieldLabel("Do you have any of these conditions?")
+            chipFlow(
+                HealthCondition.allCases,
+                selected: viewModel.healthConditions,
+                label: \.displayName,
+                onTap: viewModel.toggleHealthCondition
+            )
+
+            fieldLabel("Injury or movement limitation")
+            singleChoiceChipFlow(InjuryLimitation.allCases, selected: $viewModel.injuryLimitation) { $0.displayName }
         }
     }
 
     private var scheduleSection: some View {
         SurfaceCard {
-            sectionTitle("Time Constraints", icon: "clock.badge.checkmark")
+            sectionTitle("C. Time Constraint", icon: "clock.badge.checkmark")
 
-            fieldLabel("How long can you exercise per session?")
+            fieldLabel("How much time can you exercise per session?")
             Picker("Duration per session", selection: $viewModel.sessionDuration) {
                 ForEach(SessionDurationOption.allCases) { option in
                     Text(option.displayName).tag(option)
@@ -164,15 +268,10 @@ struct OnboardingView: View {
             .pickerStyle(.menu)
             .tint(.white)
 
-            fieldLabel("How many days per week are available?")
-            Picker("Days available", selection: $viewModel.daysPerWeek) {
-                ForEach(DaysPerWeekAvailability.allCases) { option in
-                    Text(option.displayName).tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
+            fieldLabel("How many days per week can you exercise?")
+            singleChoiceChipFlow(DaysPerWeekAvailability.allCases, selected: $viewModel.daysPerWeek) { $0.displayName }
 
-            fieldLabel("Preferred workout time")
+            fieldLabel("When do you prefer to exercise?")
             Picker("Preferred time", selection: $viewModel.preferredTime) {
                 ForEach(PreferredTime.allCases) { option in
                     Text(option.displayName).tag(option)
@@ -185,52 +284,39 @@ struct OnboardingView: View {
 
     private var environmentSection: some View {
         SurfaceCard {
-            sectionTitle("Environment & Gear", icon: "figure.outdoor.cycle")
+            sectionTitle("D. Environment", icon: "figure.outdoor.cycle")
 
-            fieldLabel("Preferred environment")
-            Picker("Environment", selection: $viewModel.environment) {
-                ForEach(SportEnvironment.allCases) { option in
-                    Text(option.displayName).tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
+            fieldLabel("Where do you prefer to do sport?")
+            singleChoiceChipFlow(SportEnvironment.allCases, selected: $viewModel.environment) { $0.displayName }
 
-            Text("Available equipment")
-                .font(AppTypography.caption(13))
-                .foregroundStyle(AppPalette.textSecondary)
+            fieldLabel("What equipment do you have access to?")
 
-            chipFlow(Equipment.allCases, selected: $viewModel.equipments) { $0.displayName }
+            chipFlow(
+                equipmentInputOptions,
+                selected: viewModel.equipments,
+                label: \.displayName,
+                onTap: viewModel.toggleEquipment
+            )
         }
     }
 
     private var preferenceSection: some View {
         SurfaceCard {
-            sectionTitle("Sport Preferences", icon: "sparkles")
-
-            Text("Enjoyable activities")
-                .font(AppTypography.caption(13))
-                .foregroundStyle(AppPalette.textSecondary)
-
-            chipFlow(ActivityType.allCases, selected: $viewModel.enjoyableActivities) { $0.displayName }
+            sectionTitle("E. Sport Preferences", icon: "sparkles")
 
             fieldLabel("Preferred intensity")
-            Picker("Intensity", selection: $viewModel.intensityPreference) {
-                ForEach(IntensityPreference.allCases) { option in
-                    Text(option.displayName).tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
+            singleChoiceChipFlow(IntensityPreference.allCases, selected: $viewModel.intensityPreference) { $0.displayName }
 
-            fieldLabel("Social mode")
+            fieldLabel("Solo or social activity")
             Picker("Social mode", selection: $viewModel.socialPreference) {
-                ForEach(SocialPreference.allCases) { option in
+                ForEach(socialInputOptions, id: \.self) { option in
                     Text(option.displayName).tag(option)
                 }
             }
             .pickerStyle(.menu)
             .tint(.white)
 
-            fieldLabel("Exercise consistency")
+            fieldLabel("How consistent are you usually with exercise?")
             Picker("Consistency", selection: $viewModel.consistency) {
                 ForEach(ConsistencyLevel.allCases) { option in
                     Text(option.displayName).tag(option)
@@ -243,17 +329,7 @@ struct OnboardingView: View {
 
     private var goalSection: some View {
         SurfaceCard {
-            sectionTitle("Goals", icon: "target")
-
-            fieldLabel("Target resting heart rate")
-            Picker("Target Resting HR", selection: $viewModel.targetRestingHeartRateRange) {
-                ForEach(RestingHeartRateRange.allCases.filter { $0 != .unknown }) { option in
-                    Text(option.displayName).tag(option)
-                }
-            }
-            .pickerStyle(.menu)
-            .tint(.white)
-
+            sectionTitle("Weekly Goal", icon: "target")
             WeeklyActivityGoalSelector(goal: $viewModel.weeklyGoal)
         }
     }
@@ -269,27 +345,165 @@ struct OnboardingView: View {
         }
     }
 
-    private var submitSection: some View {
+    private var actionSection: some View {
         SurfaceCard {
-            if let error = viewModel.errorMessage {
-                Text(error)
-                    .font(AppTypography.caption(12))
-                    .foregroundStyle(.red.opacity(0.9))
-            }
+            VStack(spacing: 12) {
+                if let error = currentErrorMessage {
+                    Text(error)
+                        .font(AppTypography.caption(12))
+                        .foregroundStyle(.red.opacity(0.9))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
 
-            Button {
-                viewModel.submit()
-            } label: {
-                HStack {
-                    if viewModel.isLoading {
-                        ProgressView()
-                            .tint(.white)
+                HStack(spacing: 10) {
+                    if previousStep != nil {
+                        Button("Back") {
+                            moveToPreviousStep()
+                        }
+                        .buttonStyle(SecondaryActionButtonStyle())
                     }
-                    Text("Generate Weekly Plan")
+
+                    Button {
+                        handlePrimaryAction()
+                    } label: {
+                        HStack {
+                            if viewModel.isLoading && isLastStep {
+                                ProgressView()
+                                    .tint(.white)
+                            }
+                            Text(isLastStep ? "Generate Weekly Plan" : "Next")
+                        }
+                    }
+                    .buttonStyle(PrimaryActionButtonStyle())
+                    .disabled(isPrimaryDisabled)
                 }
             }
-            .buttonStyle(PrimaryActionButtonStyle())
-            .disabled(viewModel.isLoading)
+        }
+    }
+
+    private var stepProgress: Double {
+        Double(currentStep.rawValue + 1) / Double(OnboardingStep.allCases.count)
+    }
+
+    private var nextStep: OnboardingStep? {
+        OnboardingStep(rawValue: currentStep.rawValue + 1)
+    }
+
+    private var previousStep: OnboardingStep? {
+        OnboardingStep(rawValue: currentStep.rawValue - 1)
+    }
+
+    private var isLastStep: Bool {
+        nextStep == nil
+    }
+
+    private var isPrimaryDisabled: Bool {
+        viewModel.isLoading || !canProceedCurrentStep
+    }
+
+    private var canProceedCurrentStep: Bool {
+        stepValidationMessage == nil
+    }
+
+    private var currentErrorMessage: String? {
+        if let explicit = viewModel.errorMessage {
+            return explicit
+        }
+        return stepValidationMessage
+    }
+
+    private var stepValidationMessage: String? {
+        switch currentStep {
+        case .healthSync:
+            return nil
+        case .physiological:
+            if viewModel.restingHeartRateRange == .unknown {
+                return "Current resting heart rate is required."
+            }
+            if viewModel.targetRestingHeartRateRange == .unknown || viewModel.targetRestingHeartRateRange == .above90 {
+                return "Target resting heart rate is required."
+            }
+            if Double(viewModel.weightKgText) == nil || (Double(viewModel.weightKgText) ?? 0) <= 0 {
+                return "Weight is required."
+            }
+            if Double(viewModel.heightCmText) == nil || (Double(viewModel.heightCmText) ?? 0) <= 0 {
+                return "Height is required."
+            }
+            return nil
+        case .healthSafety:
+            if viewModel.healthConditions.isEmpty {
+                return "Health condition is required."
+            }
+            return nil
+        case .timeConstraint:
+            return nil
+        case .environment:
+            if viewModel.equipments.isEmpty {
+                return "At least one equipment option is required."
+            }
+            return nil
+        case .preferences:
+            return nil
+        case .goals:
+            if !viewModel.acceptedDisclaimer {
+                return "You must accept the medical disclaimer."
+            }
+            return nil
+        }
+    }
+
+    private var equipmentInputOptions: [Equipment] {
+        [
+            .none,
+            .yogaMat,
+            .resistanceBands,
+            .dumbbells,
+            .kettlebell,
+            .ankleWeights,
+            .bicycle,
+            .treadmill,
+            .tennisRacket,
+            .badmintonRacket,
+            .jumpRope,
+            .rowingMachine,
+            .ellipticalMachine,
+            .swimmingPoolAccess,
+            .sportsCourtAccess,
+            .stairsOrHillAccess,
+            .gymMembership
+        ]
+    }
+
+    private var socialInputOptions: [SocialPreference] {
+        [.solo, .withFriends, .either]
+    }
+
+    private var targetHeartRateOptions: [RestingHeartRateRange] {
+        RestingHeartRateRange.allCases.filter { $0 != .unknown && $0 != .above90 }
+    }
+
+    private func handlePrimaryAction() {
+        viewModel.errorMessage = nil
+
+        if isLastStep {
+            viewModel.submit()
+            return
+        }
+
+        moveToNextStep()
+    }
+
+    private func moveToNextStep() {
+        guard let nextStep else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            currentStep = nextStep
+        }
+    }
+
+    private func moveToPreviousStep() {
+        guard let previousStep else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            currentStep = previousStep
         }
     }
 
@@ -314,17 +528,47 @@ struct OnboardingView: View {
         return String(format: "%.1f %@", value, suffix)
     }
 
-    private func chipFlow<Option: Hashable>(_ options: [Option], selected: Binding<Set<Option>>, label: @escaping (Option) -> String) -> some View {
+    private func statusPill(text: String, color: Color) -> some View {
+        Text(text)
+            .font(AppTypography.caption(12))
+            .foregroundStyle(color.opacity(0.95))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(color.opacity(0.12))
+            .clipShape(Capsule())
+    }
+
+    private func chipFlow<Option: Hashable>(
+        _ options: [Option],
+        selected: Set<Option>,
+        label: @escaping (Option) -> String,
+        onTap: @escaping (Option) -> Void
+    ) -> some View {
         let columns = [GridItem(.adaptive(minimum: 128), spacing: 9)]
         return LazyVGrid(columns: columns, alignment: .leading, spacing: 9) {
             ForEach(Array(options.indices), id: \.self) { index in
                 let option = options[index]
-                SelectableChip(title: label(option), isSelected: selected.wrappedValue.contains(option)) {
-                    if selected.wrappedValue.contains(option) {
-                        selected.wrappedValue.remove(option)
-                    } else {
-                        selected.wrappedValue.insert(option)
-                    }
+                SelectableChip(title: label(option), isSelected: selected.contains(option)) {
+                    onTap(option)
+                }
+            }
+        }
+    }
+
+    private func singleChoiceChipFlow<Option: Hashable>(
+        _ options: [Option],
+        selected: Binding<Option>,
+        label: @escaping (Option) -> String
+    ) -> some View {
+        let columns = [GridItem(.adaptive(minimum: 128), spacing: 9)]
+        return LazyVGrid(columns: columns, alignment: .leading, spacing: 9) {
+            ForEach(Array(options.indices), id: \.self) { index in
+                let option = options[index]
+                SelectableChip(
+                    title: label(option),
+                    isSelected: selected.wrappedValue == option
+                ) {
+                    selected.wrappedValue = option
                 }
             }
         }
