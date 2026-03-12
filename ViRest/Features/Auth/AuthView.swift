@@ -37,6 +37,27 @@ struct AuthView: View {
                     }
                     .buttonStyle(SecondaryActionButtonStyle())
 
+                    Divider().overlay(.white.opacity(0.12))
+
+//                    Text("— Or test with separate buttons —")
+//                        .font(AppTypography.caption(12))
+//                        .foregroundStyle(AppPalette.textSecondary)
+//                        .frame(maxWidth: .infinity, alignment: .center)
+//
+//                    Button {
+//                        viewModel.testSignInWithApple()
+//                    } label: {
+//                        Label("Test Sign in with Apple (Firebase)", systemImage: "apple.logo")
+//                    }
+//                    .buttonStyle(SecondaryActionButtonStyle())
+//
+//                    Button {
+//                        viewModel.testSignInWithGoogle()
+//                    } label: {
+//                        Label("Test Sign in with Google (Firebase)", systemImage: "globe")
+//                    }
+//                    .buttonStyle(SecondaryActionButtonStyle())
+
                     Text("Firebase-compatible auth flow is prepared. Attach SDK keys for production login.")
                         .font(AppTypography.caption(12))
                         .foregroundStyle(AppPalette.textSecondary)
@@ -89,3 +110,4 @@ struct AuthView: View {
         }
     }
 }
+
