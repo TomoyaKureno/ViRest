@@ -26,6 +26,15 @@ final class AuthViewModel: ObservableObject {
         }
     }
 
+    // Additional test entry points to avoid changing existing buttons.
+    func testSignInWithApple() {
+        signInWithApple()
+    }
+
+    func testSignInWithGoogle() {
+        signInWithGoogle()
+    }
+
     private func runAuth(action: @escaping () async throws -> Void) {
         isLoading = true
         errorMessage = nil
@@ -46,3 +55,4 @@ final class AuthViewModel: ObservableObject {
         }
     }
 }
+
