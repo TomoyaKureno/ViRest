@@ -4,36 +4,26 @@ import UIKit
 struct MainTabView: View {
     @StateObject private var mainCoordinator = MainCoordinator()
     @StateObject private var homeViewModel: HomeViewModel
-    @StateObject private var checkInViewModel: CheckInViewModel
     @StateObject private var profileViewModel: ProfileViewModel
 
     private let onSignOut: () -> Void
 
     init(container: AppContainer, onSignOut: @escaping () -> Void) {
         _homeViewModel = StateObject(wrappedValue: HomeViewModel(
-            userProfileRepository: container.userProfileRepository,
-            planRepository: container.planRepository,
-            checkInRepository: container.checkInRepository,
-            healthService: container.healthService,
-            recommendationEngine: container.recommendationEngine,
-            notificationService: container.notificationService
-        ))
-
-        _checkInViewModel = StateObject(wrappedValue: CheckInViewModel(
-            userProfileRepository: container.userProfileRepository,
-            planRepository: container.planRepository,
-            checkInRepository: container.checkInRepository,
-            badgeRepository: container.badgeStateRepository,
-            healthService: container.healthService,
-            planAdjustmentService: container.planAdjustmentService,
+            firestoreUserRepository: container.firestoreUserRepository,
+            authService: container.authService,
+            notificationService: container.notificationService,
             gamificationService: container.gamificationService,
-            notificationService: container.notificationService
+            badgeRepository: container.badgeStateRepository,
+            planAdjustmentService: container.planAdjustmentService
         ))
 
         _profileViewModel = StateObject(wrappedValue: ProfileViewModel(
             userProfileRepository: container.userProfileRepository,
             planRepository: container.planRepository,
-            badgeRepository: container.badgeStateRepository
+            badgeRepository: container.badgeStateRepository,
+            firestoreUserRepository: container.firestoreUserRepository,
+            authService: container.authService
         ))
 
         self.onSignOut = onSignOut
@@ -47,12 +37,6 @@ struct MainTabView: View {
                     Label("Plan", systemImage: "heart.text.square.fill")
                 }
                 .tag(MainCoordinator.Tab.home)
-
-            CheckInView(viewModel: checkInViewModel)
-                .tabItem {
-                    Label("Check-In", systemImage: "checkmark.seal.fill")
-                }
-                .tag(MainCoordinator.Tab.checkIn)
 
             ProfileView(viewModel: profileViewModel, onSignOut: onSignOut)
                 .tabItem {

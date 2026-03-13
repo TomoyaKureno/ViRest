@@ -21,11 +21,35 @@ final class AppCoordinator: ObservableObject {
 
     func bootstrap() async {
         await container.authService.restoreSession()
-        route = resolveRoute()
+
+        switch container.authService.authState {
+        case .signedOut:
+            route = .auth
+        case .signedIn(let user):
+            if let firestoreUser = try? await container.firestoreUserRepository.loadUser(userId: user.id),
+               firestoreUser.sportPlan != nil {
+                route = .main
+            } else {
+                route = .onboarding
+            }
+        }
     }
 
     func didAuthenticate() {
-        route = resolveRoute()
+        // After sign-in, re-run the full async bootstrap check
+        Task {
+            switch container.authService.authState {
+            case .signedOut:
+                route = .auth
+            case .signedIn(let user):
+                if let firestoreUser = try? await container.firestoreUserRepository.loadUser(userId: user.id),
+                   firestoreUser.sportPlan != nil {
+                    route = .main
+                } else {
+                    route = .onboarding
+                }
+            }
+        }
     }
 
     func didCompleteOnboarding() {
@@ -35,15 +59,5 @@ final class AppCoordinator: ObservableObject {
     func signOut() {
         try? container.authService.signOut()
         route = .auth
-    }
-
-    private func resolveRoute() -> Route {
-        switch container.authService.authState {
-        case .signedOut:
-            return .auth
-        case .signedIn:
-            let profile = try? container.userProfileRepository.loadProfile()
-            return (profile == nil) ? .onboarding : .main
-        }
     }
 }

@@ -1,73 +1,89 @@
 import Foundation
 import Combine
+import FirebaseFirestore
 
 @MainActor
 final class HomeViewModel: ObservableObject {
-    @Published var profile: UserProfileInput?
-    @Published var plan: WeeklyPlan?
-    @Published var healthSnapshot: HealthSnapshot?
+    @Published var firestoreUser: FirestoreUser?
+    @Published var currentTitle: String = ""
     @Published var isLoading = false
     @Published var errorMessage: String?
-    @Published var infoMessage: String?
+    @Published var checkInSuccess: String?
 
-    private let userProfileRepository: UserProfileRepository
-    private let planRepository: PlanRepository
-    private let checkInRepository: CheckInRepository
-    private let healthService: HealthDataProviding
-    private let recommendationEngine: RecommendationProviding
+    // Sheet state
+    @Published var selectedSport: FirestoreSportEntry?
+    @Published var showCheckInSheet = false
+
+    private let firestoreUserRepository: FirestoreUserRepository
+    private let authService: AuthProviding
     private let notificationService: NotificationScheduling
+    private let gamificationService: GamificationProviding
+    private let badgeRepository: BadgeStateRepository
+    private let planAdjustmentService: PlanAdjusting
 
     init(
-        userProfileRepository: UserProfileRepository,
-        planRepository: PlanRepository,
-        checkInRepository: CheckInRepository,
-        healthService: HealthDataProviding,
-        recommendationEngine: RecommendationProviding,
-        notificationService: NotificationScheduling
+        firestoreUserRepository: FirestoreUserRepository,
+        authService: AuthProviding,
+        notificationService: NotificationScheduling,
+        gamificationService: GamificationProviding,
+        badgeRepository: BadgeStateRepository,
+        planAdjustmentService: PlanAdjusting
     ) {
-        self.userProfileRepository = userProfileRepository
-        self.planRepository = planRepository
-        self.checkInRepository = checkInRepository
-        self.healthService = healthService
-        self.recommendationEngine = recommendationEngine
+        self.firestoreUserRepository = firestoreUserRepository
+        self.authService = authService
         self.notificationService = notificationService
+        self.gamificationService = gamificationService
+        self.badgeRepository = badgeRepository
+        self.planAdjustmentService = planAdjustmentService
+    }
+
+    var sports: [FirestoreSportEntry] {
+        firestoreUser?.sportPlan?.sports ?? []
     }
 
     func load() {
-        Task {
-            await loadInternal(regenerateIfNeeded: true)
-        }
+        Task { await loadInternal() }
     }
 
-    func regenerateNow() {
-        Task {
-            do {
-                try await regeneratePlan(forceReason: "Plan regenerated using latest profile and health data.")
-            } catch {
-                await MainActor.run {
-                    self.errorMessage = error.localizedDescription
-                }
-            }
-        }
+    // Called when user taps '+' on a sport card
+    func tapCheckIn(sport: FirestoreSportEntry) {
+        selectedSport = sport
+        showCheckInSheet = true
     }
 
-    private func loadInternal(regenerateIfNeeded: Bool) async {
+    // Called by sheet's onCompleted closure to reload data
+    func reloadAfterCheckIn() {
+        Task { await loadInternal() }
+        checkInSuccess = "Session logged!"
+    }
+
+    func makeCheckInSheetViewModel(for sport: FirestoreSportEntry) -> CheckInSheetViewModel {
+        let vm = CheckInSheetViewModel(
+            sport: sport,
+            firestoreUserRepository: firestoreUserRepository,
+            authService: authService,
+            badgeRepository: badgeRepository,
+            gamificationService: gamificationService,
+            notificationService: notificationService,
+            planAdjustmentService: planAdjustmentService
+        )
+        vm.onCompleted = { [weak self] in
+            self?.reloadAfterCheckIn()
+        }
+        return vm
+    }
+
+    private func loadInternal() async {
         isLoading = true
-        errorMessage = nil
-
+        guard case .signedIn(let user) = authService.authState else {
+            isLoading = false; return
+        }
         do {
-            guard let profile = try userProfileRepository.loadProfile() else {
-                throw AppError.invalidState("Profile is missing. Please complete onboarding again.")
+            firestoreUser = try await firestoreUserRepository.loadUser(userId: user.id)
+            if let titleId = firestoreUser?.currentTitleId, !titleId.isEmpty {
+                currentTitle = await FirestoreDB.shared.fetchTitleName(titleId: titleId)
             }
-
-            self.profile = profile
-            self.healthSnapshot = await healthService.fetchLatestSnapshot(profile: profile)
-            self.plan = try planRepository.loadCurrentPlan()
-
-            if regenerateIfNeeded {
-                try await maybeRecalibrate(profile: profile)
-            }
-
+            try await resetWeeklyCountersIfNeeded(userId: user.id)
             isLoading = false
         } catch {
             errorMessage = error.localizedDescription
@@ -75,59 +91,16 @@ final class HomeViewModel: ObservableObject {
         }
     }
 
-    private func maybeRecalibrate(profile: UserProfileInput) async throws {
-        guard let currentPlan = plan else {
-            try await regeneratePlan(forceReason: "No active plan found. Generated a new plan.")
-            return
+    private func resetWeeklyCountersIfNeeded(userId: String) async throws {
+        guard var plan = firestoreUser?.sportPlan else { return }
+        let weekStart = Date().startOfWeek()
+        guard plan.sports.contains(where: { $0.weekResetDate < weekStart }) else { return }
+
+        for i in plan.sports.indices {
+            plan.sports[i].completedThisWeek = 0
+            plan.sports[i].weekResetDate = weekStart
         }
-
-        let now = Date()
-        let weekDiff = Calendar.current.dateComponents([.day], from: currentPlan.generatedAt, to: now).day ?? 0
-        let allCheckIns = try checkInRepository.loadCheckIns()
-        let weekStart = now.startOfWeek()
-        let weeklyCheckIns = allCheckIns.filter { $0.checkInDate >= weekStart }
-        let adherence = currentPlan.sessions.isEmpty ? 0 : Double(weeklyCheckIns.count) / Double(currentPlan.sessions.count)
-
-        var shouldRebuild = false
-        var reason = ""
-
-        if weekDiff >= 7 {
-            shouldRebuild = true
-            reason = "Weekly recalibration applied with latest data."
-        } else if adherence < 0.4 {
-            shouldRebuild = true
-            reason = "Recalibrated because adherence was below 40%."
-        } else if let rhr = healthSnapshot?.restingHeartRate, rhr >= 85 {
-            shouldRebuild = true
-            reason = "Recalibrated to safer plan due to elevated resting HR trend."
-        }
-
-        if shouldRebuild {
-            try await regeneratePlan(forceReason: reason)
-        }
-    }
-
-    private func regeneratePlan(forceReason: String) async throws {
-        guard let profile else {
-            throw AppError.invalidState("Profile must be loaded before plan regeneration.")
-        }
-
-        let goal = try planRepository.loadGoal() ?? .threeTimesPerWeek
-        let snapshot = await healthService.fetchLatestSnapshot(profile: profile)
-
-        let request = RecommendationRequest(
-            userProfile: profile,
-            healthSnapshot: snapshot,
-            goalFrequency: goal,
-            weekStartDate: Date()
-        )
-
-        let result = recommendationEngine.recommend(request: request)
-        try planRepository.saveCurrentPlan(result.weeklyPlan)
-        notificationService.schedulePlanReminders(for: result.weeklyPlan)
-
-        self.healthSnapshot = snapshot
-        self.plan = result.weeklyPlan
-        self.infoMessage = forceReason
+        firestoreUser?.sportPlan = plan
+        try await firestoreUserRepository.saveSportPlan(userId: userId, plan: plan)
     }
 }
