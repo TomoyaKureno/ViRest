@@ -11,12 +11,12 @@ struct SurfaceCard<Content: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(.ultraThinMaterial.opacity(0.95))
+                .fill(AppPalette.card)
                 .overlay(
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .fill(
                             LinearGradient(
-                                colors: [Color.white.opacity(0.08), Color.clear],
+                                colors: [Color.white.opacity(0.06), Color.clear],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )

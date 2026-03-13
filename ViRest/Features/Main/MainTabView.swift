@@ -65,14 +65,13 @@ struct MainTabView: View {
 
     private static func configureTabBarAppearance() {
         let appearance = UITabBarAppearance()
-        appearance.configureWithTransparentBackground()
-        appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterialDark)
-        appearance.backgroundColor = UIColor.black.withAlphaComponent(0.22)
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = UIColor(Color.richBlack).withAlphaComponent(0.95)
 
         let normal = appearance.stackedLayoutAppearance.normal
-        normal.iconColor = UIColor.white.withAlphaComponent(0.64)
+        normal.iconColor = UIColor(AppPalette.textSecondary)
         normal.titleTextAttributes = [
-            .foregroundColor: UIColor.white.withAlphaComponent(0.64),
+            .foregroundColor: UIColor(AppPalette.textSecondary),
             .font: UIFont(name: "AvenirNext-Medium", size: 11) ?? UIFont.systemFont(ofSize: 11, weight: .medium)
         ]
 
@@ -86,4 +85,17 @@ struct MainTabView: View {
         UITabBar.appearance().standardAppearance = appearance
         UITabBar.appearance().scrollEdgeAppearance = appearance
     }
+}
+
+@MainActor
+private struct MainTabPreviewHost: View {
+    private let container = PreviewSupport.makeSeededContainer()
+
+    var body: some View {
+        MainTabView(container: container, onSignOut: { })
+    }
+}
+
+#Preview("Main Tab") {
+    MainTabPreviewHost()
 }

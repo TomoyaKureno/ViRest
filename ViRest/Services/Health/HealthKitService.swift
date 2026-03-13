@@ -28,28 +28,39 @@ final class HealthKitService: HealthDataProviding {
         }
     }
 
+    func shouldPresentAuthorizationPrompt() async -> Bool {
+        guard HKHealthStore.isHealthDataAvailable() else {
+            return false
+        }
+
+        let readTypes = requiredReadTypes()
+        guard !readTypes.isEmpty else {
+            return false
+        }
+
+        return await withCheckedContinuation { continuation in
+            store.getRequestStatusForAuthorization(toShare: [], read: readTypes) { status, _ in
+                switch status {
+                case .shouldRequest:
+                    continuation.resume(returning: true)
+                case .unnecessary, .unknown:
+                    continuation.resume(returning: false)
+                @unknown default:
+                    continuation.resume(returning: false)
+                }
+            }
+        }
+    }
+
     func requestAuthorization() async -> Bool {
         guard HKHealthStore.isHealthDataAvailable() else {
             return false
         }
 
-        let quantityTypes = [
-            HKObjectType.quantityType(forIdentifier: .stepCount),
-            HKObjectType.quantityType(forIdentifier: .activeEnergyBurned),
-            HKObjectType.quantityType(forIdentifier: .height),
-            HKObjectType.quantityType(forIdentifier: .bodyMass),
-            HKObjectType.quantityType(forIdentifier: .restingHeartRate),
-            HKObjectType.quantityType(forIdentifier: .walkingHeartRateAverage),
-            HKObjectType.quantityType(forIdentifier: .heartRate),
-            HKObjectType.quantityType(forIdentifier: .vo2Max),
-            HKObjectType.quantityType(forIdentifier: .heartRateRecoveryOneMinute)
-        ].compactMap { $0 }
-        let characteristicTypes: [HKObjectType] = [
-            HKObjectType.characteristicType(forIdentifier: .dateOfBirth),
-            HKObjectType.characteristicType(forIdentifier: .biologicalSex)
-        ]
-        .compactMap { $0 as HKObjectType? }
-        let readTypes = Set<HKObjectType>(quantityTypes.map { $0 as HKObjectType } + characteristicTypes)
+        let readTypes = requiredReadTypes()
+        guard !readTypes.isEmpty else {
+            return false
+        }
 
         return await withCheckedContinuation { continuation in
             store.requestAuthorization(toShare: [], read: readTypes) { success, _ in
@@ -151,7 +162,7 @@ final class HealthKitService: HealthDataProviding {
             bmiValue = nil
         }
 
-        let manualResting = profile?.restingHeartRateRange.midpoint
+        let manualResting = profile?.questionnaireCurrentRHRBand.map { Double($0.representativeBPM) }
         let resolvedResting = restingHRValue ?? manualResting
         let usedManualFallbackValues = profile != nil && (heightCmValue == nil || weightKgValue == nil || restingHRValue == nil)
         let source: HealthDataSource = usedManualFallbackValues ? .mixed : .healthKit
@@ -286,6 +297,28 @@ final class HealthKitService: HealthDataProviding {
         let start = Calendar.current.date(byAdding: .day, value: -days, to: end) ?? end
         return HKQuery.predicateForSamples(withStart: start, end: end)
     }
+
+    private func requiredReadTypes() -> Set<HKObjectType> {
+        let quantityTypes = [
+            HKObjectType.quantityType(forIdentifier: .stepCount),
+            HKObjectType.quantityType(forIdentifier: .activeEnergyBurned),
+            HKObjectType.quantityType(forIdentifier: .height),
+            HKObjectType.quantityType(forIdentifier: .bodyMass),
+            HKObjectType.quantityType(forIdentifier: .restingHeartRate),
+            HKObjectType.quantityType(forIdentifier: .walkingHeartRateAverage),
+            HKObjectType.quantityType(forIdentifier: .heartRate),
+            HKObjectType.quantityType(forIdentifier: .vo2Max),
+            HKObjectType.quantityType(forIdentifier: .heartRateRecoveryOneMinute)
+        ].compactMap { $0 as HKObjectType? }
+
+        let characteristicTypes: [HKObjectType] = [
+            HKObjectType.characteristicType(forIdentifier: .dateOfBirth),
+            HKObjectType.characteristicType(forIdentifier: .biologicalSex)
+        ]
+        .compactMap { $0 as HKObjectType? }
+
+        return Set(quantityTypes + characteristicTypes)
+    }
 }
 
 #else
@@ -293,6 +326,8 @@ final class HealthKitService: HealthDataProviding {
 @MainActor
 final class HealthKitService: HealthDataProviding {
     var authorizationState: HealthAuthorizationState { .unavailable }
+
+    func shouldPresentAuthorizationPrompt() async -> Bool { false }
 
     func requestAuthorization() async -> Bool { false }
 

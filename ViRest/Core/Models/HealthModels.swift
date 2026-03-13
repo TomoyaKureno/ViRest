@@ -24,7 +24,7 @@ struct HealthSnapshot: Codable, Equatable {
     var dataFreshnessHours: Double?
 
     static func manualFallback(from profile: UserProfileInput) -> HealthSnapshot {
-        let resting = profile.restingHeartRateRange.midpoint
+        let resting = profile.questionnaireCurrentRHRBand.map { Double($0.representativeBPM) }
         let heightCm = profile.heightCm
         let weightKg = profile.weightKg
         let bmi: Double?

@@ -1,57 +1,5 @@
 import Foundation
 
-enum ImpactLevel: String, Codable {
-    case low
-    case moderate
-    case high
-}
-
-struct SportCatalogItem: Codable, Identifiable, Equatable {
-    var id: UUID
-    var activity: ActivityType
-    var displayName: String
-    var allowedEnvironments: [SportEnvironment]
-    var requiredEquipments: [Equipment]
-    var contraindicatedConditions: [HealthCondition]
-    var contraindicatedInjuries: [InjuryLimitation]
-    var impactLevel: ImpactLevel
-    var defaultDurationRangeMinutes: ClosedRange<Int>
-    var minRPE: Int
-    var maxRPE: Int
-    var baseCardioScore: Double
-    var shortDescription: String
-
-    init(
-        id: UUID = UUID(),
-        activity: ActivityType,
-        displayName: String,
-        allowedEnvironments: [SportEnvironment],
-        requiredEquipments: [Equipment],
-        contraindicatedConditions: [HealthCondition],
-        contraindicatedInjuries: [InjuryLimitation],
-        impactLevel: ImpactLevel,
-        defaultDurationRangeMinutes: ClosedRange<Int>,
-        minRPE: Int,
-        maxRPE: Int,
-        baseCardioScore: Double,
-        shortDescription: String
-    ) {
-        self.id = id
-        self.activity = activity
-        self.displayName = displayName
-        self.allowedEnvironments = allowedEnvironments
-        self.requiredEquipments = requiredEquipments
-        self.contraindicatedConditions = contraindicatedConditions
-        self.contraindicatedInjuries = contraindicatedInjuries
-        self.impactLevel = impactLevel
-        self.defaultDurationRangeMinutes = defaultDurationRangeMinutes
-        self.minRPE = minRPE
-        self.maxRPE = maxRPE
-        self.baseCardioScore = baseCardioScore
-        self.shortDescription = shortDescription
-    }
-}
-
 struct SportRecommendation: Codable, Identifiable, Equatable {
     var id: UUID
     var activity: ActivityType
@@ -60,6 +8,7 @@ struct SportRecommendation: Codable, Identifiable, Equatable {
     var plannedDurationMinutes: Int
     var targetRPE: RPERange
     var reasons: [String]
+    var cautions: [String]
 
     init(
         id: UUID = UUID(),
@@ -68,7 +17,8 @@ struct SportRecommendation: Codable, Identifiable, Equatable {
         score: Double,
         plannedDurationMinutes: Int,
         targetRPE: RPERange,
-        reasons: [String]
+        reasons: [String],
+        cautions: [String] = []
     ) {
         self.id = id
         self.activity = activity
@@ -77,6 +27,30 @@ struct SportRecommendation: Codable, Identifiable, Equatable {
         self.plannedDurationMinutes = plannedDurationMinutes
         self.targetRPE = targetRPE
         self.reasons = reasons
+        self.cautions = cautions
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case activity
+        case displayName
+        case score
+        case plannedDurationMinutes
+        case targetRPE
+        case reasons
+        case cautions
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        activity = try container.decode(ActivityType.self, forKey: .activity)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        score = try container.decode(Double.self, forKey: .score)
+        plannedDurationMinutes = try container.decode(Int.self, forKey: .plannedDurationMinutes)
+        targetRPE = try container.decode(RPERange.self, forKey: .targetRPE)
+        reasons = try container.decode([String].self, forKey: .reasons)
+        cautions = try container.decodeIfPresent([String].self, forKey: .cautions) ?? []
     }
 }
 

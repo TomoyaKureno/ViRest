@@ -89,3 +89,18 @@ struct AuthView: View {
         }
     }
 }
+
+@MainActor
+private struct AuthPreviewHost: View {
+    private let viewModel = PreviewSupport.makeAuthViewModel()
+
+    var body: some View {
+        NavigationStack {
+            AuthView(viewModel: viewModel)
+        }
+    }
+}
+
+#Preview("Auth") {
+    AuthPreviewHost()
+}

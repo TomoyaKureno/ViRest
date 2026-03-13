@@ -1,28 +1,141 @@
 import Foundation
 
 struct RuleBasedRecommendationEngine: RecommendationProviding {
-    private let catalog: [SportCatalogItem]
-    private let conservativeMaxRPE = 6
+    private enum HardFilterMode {
+        case strict
+        case relaxedBMI
+        case relaxedRHRAndBMI
+    }
 
-    init(catalog: [SportCatalogItem] = SportCatalog.items) {
-        self.catalog = catalog
+    private struct AccessSelection {
+        let noneOnly: Bool
+        let equipment: Set<String>
+    }
+
+    private struct Candidate {
+        let exercise: ExerciseSeedExercise
+        let rhrBandRule: ExerciseSeedRHRBandRule
+        let bmiRule: ExerciseSeedBMIRule
+        let hardFilterMode: HardFilterMode
+        let safetyConflicts: [String]
+    }
+
+    private struct ScoredCandidate {
+        let recommendation: SportRecommendation
+        let hardQuality: Double
+    }
+
+    private let catalog: ExerciseSeedCatalog
+
+    init(catalog: ExerciseSeedCatalog? = ExerciseSeedLoader.loadCatalog()) {
+        self.catalog = catalog ?? ExerciseSeedCatalog(
+            rhrBands: [],
+            bmiCategories: [],
+            environmentOptions: [],
+            healthConcernContraindicationOptions: [],
+            exercises: []
+        )
     }
 
     func recommend(request: RecommendationRequest) -> RecommendationResult {
-        let safeCandidates = applySafetyGate(
-            profile: request.userProfile,
-            from: catalog
+        let profile = request.userProfile
+        let currentRHR = resolvedCurrentRHR(profile: profile, snapshot: request.healthSnapshot)
+        let bmiValue = resolvedBMI(profile: profile, snapshot: request.healthSnapshot)
+        let bmiCategory = resolvedBMICategory(for: bmiValue)
+        let userDuration = durationRange(for: profile.sessionDuration)
+        let userDurationOption = profile.sessionDuration
+        let userFrequency = frequencyRange(for: profile.daysPerWeek)
+        let accessSelection = mappedAccessSelection(profile: profile)
+        let concernTags = mappedConcernTags(profile: profile)
+
+        let strictHard = applyHardFilters(
+            currentRHR: currentRHR,
+            bmiCategory: bmiCategory,
+            environment: profile.environment,
+            concernTags: concernTags,
+            hardFilterMode: .strict
         )
 
-        let candidates = safeCandidates.isEmpty ? fallbackCandidates(for: request.userProfile) : safeCandidates
+        let hardCandidates: [Candidate]
+        let hardMode: HardFilterMode
 
-        let scored = candidates.map { item in
-            score(item: item, request: request)
+        if !strictHard.isEmpty {
+            hardCandidates = strictHard
+            hardMode = .strict
+        } else {
+            let relaxedBMI = applyHardFilters(
+                currentRHR: currentRHR,
+                bmiCategory: bmiCategory,
+                environment: profile.environment,
+                concernTags: concernTags,
+                hardFilterMode: .relaxedBMI
+            )
+            if !relaxedBMI.isEmpty {
+                hardCandidates = relaxedBMI
+                hardMode = .relaxedBMI
+            } else {
+                hardCandidates = applyHardFilters(
+                    currentRHR: currentRHR,
+                    bmiCategory: bmiCategory,
+                    environment: profile.environment,
+                    concernTags: concernTags,
+                    hardFilterMode: .relaxedRHRAndBMI
+                )
+                hardMode = .relaxedRHRAndBMI
+            }
         }
-        .sorted { $0.score > $1.score }
 
-        let topThree = Array(scored.prefix(3))
-        let primary = topThree.first ?? fallbackRecommendation(for: request.userProfile)
+        let strictEquipmentCandidates = hardCandidates.filter {
+            let equipmentRequired = Set($0.exercise.equipment.map(normalizedToken))
+            return isStrictEquipmentCompatible(
+                accessSelection: accessSelection,
+                equipmentRequired: equipmentRequired
+            )
+        }
+        let usedEquipmentRelaxation = strictEquipmentCandidates.isEmpty && !hardCandidates.isEmpty
+        let equipmentPhaseCandidates = usedEquipmentRelaxation ? hardCandidates : strictEquipmentCandidates
+
+        let safeCandidates = equipmentPhaseCandidates.filter { $0.safetyConflicts.isEmpty }
+        let usedSafetyFallback = safeCandidates.isEmpty && !concernTags.isEmpty
+
+        let rankingPool: [Candidate]
+        if !safeCandidates.isEmpty {
+            rankingPool = safeCandidates
+        } else if usedSafetyFallback {
+            rankingPool = Array(
+                equipmentPhaseCandidates
+                    .sorted { lhs, rhs in
+                        lhs.safetyConflicts.count < rhs.safetyConflicts.count
+                    }
+                    .prefix(5)
+            )
+        } else {
+            rankingPool = equipmentPhaseCandidates
+        }
+
+        let scored = rankingPool
+            .map {
+                score(
+                    candidate: $0,
+                    currentRHR: currentRHR,
+                    bmiCategory: bmiCategory,
+                    preferredDuration: userDuration,
+                    userDurationOption: userDurationOption,
+                    preferredFrequency: userFrequency,
+                    accessSelection: accessSelection,
+                    preferredTime: profile.preferredTime,
+                    usedSafetyFallback: usedSafetyFallback
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.hardQuality != rhs.hardQuality {
+                    return lhs.hardQuality > rhs.hardQuality
+                }
+                return lhs.recommendation.score > rhs.recommendation.score
+            }
+
+        let topThree = Array(scored.prefix(3)).map(\.recommendation)
+        let primary = topThree.first ?? fallbackRecommendation(for: profile)
         let alternatives = Array(topThree.dropFirst())
 
         let weeklyPlan = WeeklyPlan(
@@ -30,14 +143,13 @@ struct RuleBasedRecommendationEngine: RecommendationProviding {
             goalFrequency: request.goalFrequency,
             primaryRecommendation: primary,
             alternatives: alternatives,
-            sessions: generateSessions(
-                primary: primary,
-                request: request
-            ),
-            notes: [
-                "Conservative safety policy enabled.",
-                "Intensity progression is capped to safe RPE ranges."
-            ]
+            sessions: generateSessions(primary: primary, request: request),
+            notes: buildPlanNotes(
+                profile: profile,
+                hardFilterMode: hardMode,
+                usedEquipmentRelaxation: usedEquipmentRelaxation,
+                usedSafetyFallback: usedSafetyFallback
+            )
         )
 
         return RecommendationResult(
@@ -48,187 +160,573 @@ struct RuleBasedRecommendationEngine: RecommendationProviding {
         )
     }
 
-    private func applySafetyGate(profile: UserProfileInput, from items: [SportCatalogItem]) -> [SportCatalogItem] {
-        items.filter { item in
-            let conditionConflict = !Set(profile.healthConditions).isDisjoint(with: item.contraindicatedConditions)
-            let injuryConflict = item.contraindicatedInjuries.contains(profile.injuryLimitation)
+    private func applyHardFilters(
+        currentRHR: Int,
+        bmiCategory: String,
+        environment: SportEnvironment,
+        concernTags: Set<String>,
+        hardFilterMode: HardFilterMode
+    ) -> [Candidate] {
+        var candidates: [Candidate] = []
 
-            // Conservative mode: remove risky activities as soon as one conflict is found.
-            return !(conditionConflict || injuryConflict)
+        for exercise in catalog.exercises {
+            guard isEnvironmentMatch(environment, exerciseEnvironment: exercise.environment) else {
+                continue
+            }
+
+            let matchedRHRRules: [ExerciseSeedRHRBandRule]
+            switch hardFilterMode {
+            case .strict, .relaxedBMI:
+                matchedRHRRules = exercise.rhrBands.filter { rhrBandContains($0.rhrBand, bpm: currentRHR) }
+            case .relaxedRHRAndBMI:
+                matchedRHRRules = exercise.rhrBands
+            }
+
+            guard !matchedRHRRules.isEmpty else {
+                continue
+            }
+
+            for rhrRule in matchedRHRRules {
+                guard let matchedBMIRule = matchedBMIRule(
+                    from: rhrRule.bmiRules,
+                    bmiCategory: bmiCategory,
+                    hardFilterMode: hardFilterMode
+                ) else {
+                    continue
+                }
+
+                let safetyConflicts = matchedBMIRule.contraindications.filter {
+                    concernTags.contains(normalizedToken($0))
+                }
+                candidates.append(
+                    Candidate(
+                        exercise: exercise,
+                        rhrBandRule: rhrRule,
+                        bmiRule: matchedBMIRule,
+                        hardFilterMode: hardFilterMode,
+                        safetyConflicts: safetyConflicts
+                    )
+                )
+            }
+        }
+
+        let deduped = deduplicateByExercise(candidates)
+        return deduped
+    }
+
+    private func deduplicateByExercise(_ candidates: [Candidate]) -> [Candidate] {
+        var bestByExercise: [String: Candidate] = [:]
+
+        for candidate in candidates {
+            let key = candidate.exercise.id
+            guard let existing = bestByExercise[key] else {
+                bestByExercise[key] = candidate
+                continue
+            }
+
+            let existingRank = hardModeRank(existing.hardFilterMode)
+            let candidateRank = hardModeRank(candidate.hardFilterMode)
+            if candidateRank < existingRank {
+                bestByExercise[key] = candidate
+            } else if candidateRank == existingRank,
+                      candidate.safetyConflicts.count < existing.safetyConflicts.count {
+                bestByExercise[key] = candidate
+            }
+        }
+
+        return Array(bestByExercise.values)
+    }
+
+    private func hardModeRank(_ mode: HardFilterMode) -> Int {
+        switch mode {
+        case .strict: return 0
+        case .relaxedBMI: return 1
+        case .relaxedRHRAndBMI: return 2
         }
     }
 
-    private func score(item: SportCatalogItem, request: RecommendationRequest) -> SportRecommendation {
-        let feasibility = scoreFeasibility(item: item, profile: request.userProfile)
-        let preference = scorePreference(item: item, profile: request.userProfile)
-        let cardio = scoreCardioImpact(
-            item: item,
-            snapshot: request.healthSnapshot,
-            profile: request.userProfile
-        )
-        let total = feasibility * 0.4 + preference * 0.35 + cardio * 0.25
+    private func matchedBMIRule(
+        from rules: [ExerciseSeedBMIRule],
+        bmiCategory: String,
+        hardFilterMode: HardFilterMode
+    ) -> ExerciseSeedBMIRule? {
+        if let exact = rules.first(where: { normalizedToken($0.bmiCategory) == normalizedToken(bmiCategory) }) {
+            return exact
+        }
 
-        let targetRPE = resolveTargetRPE(
-            item: item,
-            preference: request.userProfile.intensityPreference
+        if let any = rules.first(where: { normalizedToken($0.bmiCategory) == normalizedToken("Any BMI") }) {
+            return any
+        }
+
+        switch hardFilterMode {
+        case .strict:
+            return nil
+        case .relaxedBMI, .relaxedRHRAndBMI:
+            return rules.first
+        }
+    }
+
+    private func score(
+        candidate: Candidate,
+        currentRHR: Int,
+        bmiCategory: String,
+        preferredDuration: ClosedRange<Int>,
+        userDurationOption: SessionDurationOption,
+        preferredFrequency: ClosedRange<Int>,
+        accessSelection: AccessSelection,
+        preferredTime: PreferredTime,
+        usedSafetyFallback: Bool
+    ) -> ScoredCandidate {
+        let durationRange = candidate.bmiRule.durationPrescription.entryRange ?? preferredDuration
+        let frequencyRange = candidate.bmiRule.weeklyFrequencyPrescription.entryRange ?? preferredFrequency
+
+        let durationScore = rangeSimilarity(preferredDuration, durationRange, maxGap: 80)
+        let frequencyScore = rangeSimilarity(preferredFrequency, frequencyRange, maxGap: 6)
+
+        let equipmentRequired = Set(candidate.exercise.equipment.map(normalizedToken))
+        let equipmentScore = equipmentFit(
+            accessSelection: accessSelection,
+            equipmentRequired: equipmentRequired
         )
-        let duration = mappedDuration(
-            item: item,
-            profile: request.userProfile
+        let preferredTimeScore = preferredTimeFit(
+            preferredTime: preferredTime,
+            exerciseEnvironment: candidate.exercise.environment
         )
 
+        let strictEquipmentCompatible = isStrictEquipmentCompatible(
+            accessSelection: accessSelection,
+            equipmentRequired: equipmentRequired
+        )
+
+        let safetyConflicts = candidate.safetyConflicts
+        let hasSafetyConflict = !safetyConflicts.isEmpty
+
+        var hardQuality = baseHardQuality(for: candidate.hardFilterMode)
+        if !strictEquipmentCompatible {
+            hardQuality -= 0.03
+        }
+        if hasSafetyConflict {
+            hardQuality *= usedSafetyFallback ? 0.35 : 0.15
+        }
+        hardQuality = max(0.05, min(1.0, hardQuality))
+
+        let score =
+            hardQuality * 62 +
+            durationScore * 16 +
+            frequencyScore * 12 +
+            equipmentScore * 8 +
+            preferredTimeScore * 2
+
+        let reasons = buildReasons(
+            candidate: candidate,
+            currentRHR: currentRHR,
+            bmiCategory: bmiCategory,
+            preferredDuration: preferredDuration,
+            recommendedDuration: durationRange,
+            preferredFrequency: preferredFrequency,
+            recommendedFrequency: frequencyRange,
+            equipmentScore: equipmentScore,
+            strictEquipmentCompatible: strictEquipmentCompatible,
+            preferredTime: preferredTime,
+            hasSafetyConflict: hasSafetyConflict
+        )
+
+        let plannedDurationOption = compromiseDurationOption(
+            userOption: userDurationOption,
+            recommendationRange: durationRange
+        )
+        let plannedDuration = plannedDurationOption.recommendedMinutes
+        let recommendation = SportRecommendation(
+            activity: activityType(forExerciseName: candidate.exercise.exercise),
+            displayName: candidate.exercise.exercise,
+            score: score,
+            plannedDurationMinutes: plannedDuration,
+            targetRPE: targetRPE(for: currentRHR),
+            reasons: reasons,
+            cautions: candidate.bmiRule.keyCautions
+        )
+
+        return ScoredCandidate(recommendation: recommendation, hardQuality: hardQuality)
+    }
+
+    private func buildReasons(
+        candidate: Candidate,
+        currentRHR: Int,
+        bmiCategory: String,
+        preferredDuration: ClosedRange<Int>,
+        recommendedDuration: ClosedRange<Int>,
+        preferredFrequency: ClosedRange<Int>,
+        recommendedFrequency: ClosedRange<Int>,
+        equipmentScore: Double,
+        strictEquipmentCompatible: Bool,
+        preferredTime: PreferredTime,
+        hasSafetyConflict: Bool
+    ) -> [String] {
         var reasons: [String] = []
-        if feasibility >= 70 { reasons.append("Fits your weekly schedule and setup") }
-        if preference >= 70 { reasons.append("Aligned with your activity and intensity preference") }
-        if cardio >= 70 { reasons.append("Strong cardio fit to support resting HR improvement") }
-        if isLowerImpactMatch(item: item, snapshot: request.healthSnapshot, profile: request.userProfile) {
-            reasons.append("Lower-impact option matched to your current baseline")
-        }
-        if reasons.isEmpty { reasons.append("Safe and feasible under conservative mode") }
 
-        return SportRecommendation(
-            activity: item.activity,
-            displayName: item.displayName,
-            score: total,
-            plannedDurationMinutes: duration,
-            targetRPE: targetRPE,
-            reasons: reasons
-        )
+        reasons.append("RHR fit: \(candidate.rhrBandRule.rhrBand) (current \(currentRHR) bpm).")
+        reasons.append("BMI fit: \(candidate.bmiRule.bmiCategory) rule (you: \(bmiCategory)).")
+        reasons.append("Environment fit: \(candidate.exercise.environment).")
+
+        if strictEquipmentCompatible {
+            reasons.append("Equipment fit: all required access is available.")
+        } else if equipmentScore >= 0.6 {
+            reasons.append("Equipment fit: partial match, still feasible with your current access.")
+        } else {
+            reasons.append("Equipment fit: limited match, shown as fallback option.")
+        }
+
+        if hasSafetyConflict {
+            let conflicts = candidate.safetyConflicts.joined(separator: ", ")
+            reasons.append("Safety warning: contraindication overlap (\(conflicts)).")
+        } else {
+            reasons.append("Safety fit: no contraindication overlap detected.")
+        }
+
+        reasons.append("Duration fit: \(minutesDescription(recommendedDuration)) vs your \(minutesDescription(preferredDuration)).")
+        reasons.append("Frequency fit: \(sessionsDescription(recommendedFrequency)) vs your \(sessionsDescription(preferredFrequency)).")
+
+        if let caution = candidate.bmiRule.keyCautions.first {
+            reasons.append("Key caution: \(caution).")
+        }
+
+        reasons.append("Preferred time (\(preferredTime.displayName)) is used for scheduling only.")
+        return reasons
     }
 
-    private func scoreFeasibility(item: SportCatalogItem, profile: UserProfileInput) -> Double {
-        var score = 100.0
+    private func buildPlanNotes(
+        profile: UserProfileInput,
+        hardFilterMode: HardFilterMode,
+        usedEquipmentRelaxation: Bool,
+        usedSafetyFallback: Bool
+    ) -> [String] {
+        var notes: [String] = [
+            "Recommendations are generated from exercise_matrix_v4_flat.json.",
+            "Target RHR (\(profile.questionnaireTargetRHRGoal?.displayName ?? "-")) is for tracking only and is not used as a recommendation filter.",
+            "Preferred exercise time (\(profile.preferredTime.displayName)) is metadata only."
+        ]
 
-        if profile.environment != .both && !item.allowedEnvironments.contains(profile.environment) {
-            score -= 30
+        switch hardFilterMode {
+        case .strict:
+            break
+        case .relaxedBMI:
+            notes.append("Strict BMI rule produced limited results; BMI matching was relaxed while keeping RHR and environment filters.")
+        case .relaxedRHRAndBMI:
+            notes.append("Strict hard filters produced limited results; RHR/BMI matching was relaxed to avoid empty recommendations.")
         }
 
-        let available = Set(profile.equipments)
-        let equipmentOptions = Set(item.requiredEquipments)
-        let canDoWithoutEquipment = equipmentOptions.contains(.none)
-        if !canDoWithoutEquipment && equipmentOptions.isDisjoint(with: available) {
-            score -= 40
+        if usedEquipmentRelaxation {
+            notes.append("No exact equipment match found; equipment was treated as soft-fit for best available options.")
         }
 
-        let targetMinutes = profile.sessionDuration.recommendedMinutes
-        let durationLower = item.defaultDurationRangeMinutes.lowerBound
-        let durationUpper = item.defaultDurationRangeMinutes.upperBound
-        if targetMinutes < durationLower || targetMinutes > durationUpper {
-            let distance = min(abs(targetMinutes - durationLower), abs(targetMinutes - durationUpper))
-            score -= distance > 10 ? 20 : 10
+        if usedSafetyFallback {
+            notes.append("No fully safe match after contraindication filtering; fallback options are shown with safety warnings.")
         }
 
-        if profile.daysPerWeek.targetSessions >= 4 && item.impactLevel == .high {
-            score -= 10
-        }
-
-        return max(0, min(100, score))
+        return notes
     }
 
-    private func scorePreference(item: SportCatalogItem, profile: UserProfileInput) -> Double {
-        var score = 35.0
-
-        if profile.enjoyableActivities.contains(item.activity) {
-            score += 30
+    private func baseHardQuality(for mode: HardFilterMode) -> Double {
+        switch mode {
+        case .strict:
+            return 1.0
+        case .relaxedBMI:
+            return 0.92
+        case .relaxedRHRAndBMI:
+            return 0.84
         }
-
-        score += intensityCompatibilityScore(item: item, preference: profile.intensityPreference)
-        score += socialCompatibilityScore(activity: item.activity, preference: profile.socialPreference)
-
-        switch profile.consistency {
-        case .quitEasily:
-            if item.impactLevel == .low {
-                score += 12
-            } else if item.impactLevel == .high {
-                score -= 6
-            }
-        case .somewhatConsistent:
-            score += 5
-        case .veryDisciplined:
-            if item.impactLevel != .low {
-                score += 8
-            }
-        }
-
-        return max(0, min(100, score))
     }
 
-    private func scoreCardioImpact(
-        item: SportCatalogItem,
-        snapshot: HealthSnapshot?,
-        profile: UserProfileInput
+    private func durationRange(for option: SessionDurationOption) -> ClosedRange<Int> {
+        switch option {
+        case .tenToTwenty:
+            return 10...20
+        case .twentyToThirty:
+            return 20...30
+        case .thirtyToFortyFive:
+            return 30...45
+        case .fortyFiveToSixty:
+            return 45...60
+        case .sixtyMinutes:
+            return 60...60
+        }
+    }
+
+    private func frequencyRange(for option: DaysPerWeekAvailability) -> ClosedRange<Int> {
+        switch option {
+        case .twoToThree:
+            return 2...3
+        case .threeToFour:
+            return 3...4
+        case .fourToFive:
+            return 4...5
+        case .fiveToSeven:
+            return 5...7
+        }
+    }
+
+    private func resolvedCurrentRHR(profile: UserProfileInput, snapshot: HealthSnapshot?) -> Int {
+        if let rhr = snapshot?.restingHeartRate {
+            return Int(rhr.rounded())
+        }
+        if let questionBand = profile.questionnaireCurrentRHRBand {
+            return questionBand.representativeBPM
+        }
+        return 75
+    }
+
+    private func resolvedBMI(profile: UserProfileInput, snapshot: HealthSnapshot?) -> Double? {
+        if let bmi = snapshot?.bmi, bmi > 0 {
+            return bmi
+        }
+
+        let weight = profile.weightKg ?? snapshot?.weightKg
+        let heightCm = profile.heightCm ?? snapshot?.heightCm
+
+        guard let weight, let heightCm, heightCm > 0 else {
+            return nil
+        }
+
+        let meters = heightCm / 100
+        return weight / (meters * meters)
+    }
+
+    private func resolvedBMICategory(for bmi: Double?) -> String {
+        guard let bmi else { return "Any BMI" }
+        if bmi < 25 {
+            return "Normal"
+        }
+        if bmi < 30 {
+            return "Overweight"
+        }
+        return "Obese"
+    }
+
+    private func isEnvironmentMatch(_ userEnvironment: SportEnvironment, exerciseEnvironment: String) -> Bool {
+        let normalizedEnvironment = normalizedToken(exerciseEnvironment)
+        switch userEnvironment {
+        case .both:
+            return true
+        case .indoor:
+            return normalizedEnvironment == "indoor" || normalizedEnvironment == "both"
+        case .outdoor:
+            return normalizedEnvironment == "outdoor" || normalizedEnvironment == "both"
+        }
+    }
+
+    private func rhrBandContains(_ band: String, bpm: Int) -> Bool {
+        let lower = band.lowercased()
+        let numbers = lower
+            .components(separatedBy: CharacterSet.decimalDigits.inverted)
+            .compactMap { Int($0) }
+
+        if lower.contains("<=") || lower.contains("≤") {
+            guard let limit = numbers.first else { return false }
+            return bpm <= limit
+        }
+
+        if lower.contains(">") {
+            guard let limit = numbers.first else { return false }
+            return bpm > limit
+        }
+
+        if numbers.count >= 2 {
+            return bpm >= numbers[0] && bpm <= numbers[1]
+        }
+
+        if let single = numbers.first {
+            return bpm == single
+        }
+
+        return false
+    }
+
+    private func mappedAccessSelection(profile: UserProfileInput) -> AccessSelection {
+        guard
+            let rawOptions = profile.questionnaireAccessOptions,
+            !rawOptions.isEmpty
+        else {
+            return AccessSelection(noneOnly: true, equipment: [])
+        }
+
+        let hasNone = rawOptions.contains(.none)
+        let nonNone = rawOptions.filter { $0 != .none }
+
+        if hasNone && nonNone.isEmpty {
+            return AccessSelection(noneOnly: true, equipment: [])
+        }
+
+        let mapped = Set(nonNone.map { accessToken(for: $0) })
+        return AccessSelection(noneOnly: false, equipment: mapped)
+    }
+
+    private func accessToken(for option: ExerciseAccessOptionQuestion) -> String {
+        switch option {
+        case .none: return ""
+        case .treadmill: return normalizedToken("Treadmill")
+        case .walkingShoes: return normalizedToken("Walking shoes")
+        case .runningShoes: return normalizedToken("Running shoes")
+        case .bicycle: return normalizedToken("Bicycle")
+        case .helmet: return normalizedToken("Helmet")
+        case .stationaryBike: return normalizedToken("Stationary bike")
+        case .recumbentBike: return normalizedToken("Recumbent bike")
+        case .ellipticalTrainer: return normalizedToken("Elliptical trainer")
+        case .rowingMachine: return normalizedToken("Rowing machine")
+        case .swimmingPool: return normalizedToken("Swimming pool")
+        case .flotationBelt: return normalizedToken("Flotation belt")
+        case .stairClimberMachine: return normalizedToken("Stair climber machine")
+        case .stairs: return normalizedToken("Stairs")
+        case .nordicWalkingPoles: return normalizedToken("Nordic walking poles")
+        case .yogaMat: return normalizedToken("Yoga mat")
+        case .stableChair: return normalizedToken("Stable chair")
+        case .hikingShoes: return normalizedToken("Hiking shoes")
+        }
+    }
+
+    private func mappedConcernTags(profile: UserProfileInput) -> Set<String> {
+        guard
+            let concerns = profile.questionnaireHealthConcerns,
+            !concerns.isEmpty
+        else {
+            return []
+        }
+
+        let nonNone = concerns.filter { $0 != .none }
+        return Set(nonNone.map { normalizedToken($0.displayName) })
+    }
+
+    private func isStrictEquipmentCompatible(
+        accessSelection: AccessSelection,
+        equipmentRequired: Set<String>
+    ) -> Bool {
+        if accessSelection.noneOnly {
+            return equipmentRequired.isEmpty
+        }
+
+        if equipmentRequired.isEmpty {
+            return true
+        }
+
+        return equipmentRequired.isSubset(of: accessSelection.equipment)
+    }
+
+    private func equipmentFit(
+        accessSelection: AccessSelection,
+        equipmentRequired: Set<String>
     ) -> Double {
-        var score = item.baseCardioScore
-        let effectiveRestingHR = snapshot?.restingHeartRate ?? profile.restingHeartRateRange.midpoint
+        if accessSelection.noneOnly {
+            return equipmentRequired.isEmpty ? 1.0 : 0.1
+        }
 
-        if let rhr = effectiveRestingHR {
-            if rhr >= 80 {
-                switch item.impactLevel {
-                case .low: score += 6
-                case .moderate: score += 2
-                case .high: score -= 3
-                }
-            } else if rhr <= 58, item.impactLevel == .high {
-                score -= 3
+        if equipmentRequired.isEmpty {
+            return 0.95
+        }
+
+        let matched = accessSelection.equipment.intersection(equipmentRequired)
+        if matched.count == equipmentRequired.count {
+            return 1.0
+        }
+
+        if !matched.isEmpty {
+            let ratio = Double(matched.count) / Double(equipmentRequired.count)
+            return 0.55 + ratio * 0.35
+        }
+
+        return 0.2
+    }
+
+    private func preferredTimeFit(preferredTime: PreferredTime, exerciseEnvironment: String) -> Double {
+        let env = normalizedToken(exerciseEnvironment)
+        switch preferredTime {
+        case .morning:
+            return env == "outdoor" || env == "both" ? 1.0 : 0.85
+        case .midday:
+            return env == "indoor" || env == "both" ? 1.0 : 0.85
+        case .evening:
+            return env == "indoor" || env == "both" ? 0.95 : 0.85
+        case .flexible:
+            return 0.9
+        }
+    }
+
+    private func rangeSimilarity(
+        _ lhs: ClosedRange<Int>,
+        _ rhs: ClosedRange<Int>,
+        maxGap: Int
+    ) -> Double {
+        let overlapLower = max(lhs.lowerBound, rhs.lowerBound)
+        let overlapUpper = min(lhs.upperBound, rhs.upperBound)
+
+        if overlapLower <= overlapUpper {
+            let overlap = overlapUpper - overlapLower + 1
+            let lhsLength = lhs.upperBound - lhs.lowerBound + 1
+            let rhsLength = rhs.upperBound - rhs.lowerBound + 1
+            let denom = max(lhsLength, rhsLength)
+            let overlapRatio = Double(overlap) / Double(denom)
+            return 0.75 + overlapRatio * 0.25
+        }
+
+        let gap = min(abs(lhs.lowerBound - rhs.upperBound), abs(rhs.lowerBound - lhs.upperBound))
+        let gapRatio = min(1.0, Double(gap) / Double(max(1, maxGap)))
+        return max(0.2, 0.7 - gapRatio * 0.5)
+    }
+
+    private func targetRPE(for currentRHR: Int) -> RPERange {
+        switch currentRHR {
+        case ..<61:
+            return RPERange(min: 4, max: 6)
+        case 61..<76:
+            return RPERange(min: 3, max: 5)
+        case 76..<91:
+            return RPERange(min: 3, max: 4)
+        default:
+            return RPERange(min: 2, max: 3)
+        }
+    }
+
+    private func compromiseDurationOption(
+        userOption: SessionDurationOption,
+        recommendationRange: ClosedRange<Int>
+    ) -> SessionDurationOption {
+        let recommendationOption = nearestDurationOption(for: recommendationRange)
+        let userIndex = durationOptionIndex(userOption)
+        let recommendationIndex = durationOptionIndex(recommendationOption)
+        let diff = abs(userIndex - recommendationIndex)
+
+        if diff <= 1 {
+            return recommendationOption
+        }
+
+        let midpointIndex = Int(round(Double(userIndex + recommendationIndex) / 2.0))
+        return durationOption(at: midpointIndex)
+    }
+
+    private func nearestDurationOption(for range: ClosedRange<Int>) -> SessionDurationOption {
+        let options = SessionDurationOption.allCases
+        var best = options.first ?? .twentyToThirty
+        var bestScore = -1.0
+
+        for option in options {
+            let optionRange = durationRange(for: option)
+            let score = rangeSimilarity(range, optionRange, maxGap: 80)
+            if score > bestScore {
+                bestScore = score
+                best = option
             }
         }
 
-        guard let snapshot else {
-            return max(0, min(100, score))
-        }
-
-        if let vo2 = snapshot.vo2Max {
-            if vo2 < 30 {
-                if item.impactLevel != .high {
-                    score += 4
-                } else {
-                    score += 1
-                }
-            } else if vo2 > 45 {
-                score -= 2
-            }
-        }
-
-        if let recovery = snapshot.heartRateRecovery, recovery < 20 {
-            score += 5
-        }
-
-        if let walkingHR = snapshot.walkingHeartRateAverage, walkingHR > 110 {
-            score += item.impactLevel == .low ? 4 : 2
-        }
-
-        if let freshness = snapshot.dataFreshnessHours, freshness > 72 {
-            score -= 2
-        }
-
-        return max(0, min(100, score))
+        return best
     }
 
-    private func resolveTargetRPE(item: SportCatalogItem, preference: IntensityPreference) -> RPERange {
-        let preferred = preference.targetRange
-        let itemRange = RPERange(
-            min: max(2, item.minRPE),
-            max: min(item.maxRPE, conservativeMaxRPE)
-        )
-        let overlapMin = max(preferred.min, itemRange.min)
-        let overlapMax = min(preferred.max, itemRange.max)
-
-        if overlapMin <= overlapMax {
-            return RPERange(min: overlapMin, max: overlapMax)
-        }
-
-        if preferred.max < itemRange.min {
-            let resolvedMax = min(itemRange.min + 1, itemRange.max)
-            return RPERange(min: itemRange.min, max: resolvedMax)
-        }
-
-        let resolvedMin = max(itemRange.min, itemRange.max - 1)
-        return RPERange(min: resolvedMin, max: itemRange.max)
+    private func durationOptionIndex(_ option: SessionDurationOption) -> Int {
+        SessionDurationOption.allCases.firstIndex(of: option) ?? 0
     }
 
-    private func mappedDuration(item: SportCatalogItem, profile: UserProfileInput) -> Int {
-        let preferred = profile.sessionDuration.recommendedMinutes
-        return min(max(preferred, item.defaultDurationRangeMinutes.lowerBound), item.defaultDurationRangeMinutes.upperBound)
+    private func durationOption(at index: Int) -> SessionDurationOption {
+        let options = SessionDurationOption.allCases
+        guard !options.isEmpty else { return .twentyToThirty }
+        let safeIndex = min(max(index, 0), options.count - 1)
+        return options[safeIndex]
     }
 
     private func generateSessions(primary: SportRecommendation, request: RecommendationRequest) -> [SessionPlan] {
@@ -248,77 +746,66 @@ struct RuleBasedRecommendationEngine: RecommendationProviding {
     }
 
     private func fallbackRecommendation(for profile: UserProfileInput) -> SportRecommendation {
-        let fallbackDuration = min(max(profile.sessionDuration.recommendedMinutes, 20), 50)
+        let exerciseName = catalog.exercises.first?.exercise ?? "Brisk walking"
+
         return SportRecommendation(
-            activity: .walking,
-            displayName: "Brisk Walking",
-            score: 60,
-            plannedDurationMinutes: fallbackDuration,
+            activity: activityType(forExerciseName: exerciseName),
+            displayName: exerciseName,
+            score: 40,
+            plannedDurationMinutes: profile.sessionDuration.recommendedMinutes,
             targetRPE: RPERange(min: 2, max: 4),
-            reasons: ["Safe fallback while preserving cardio stimulus"]
+            reasons: [
+                "No strong match found for strict hard filters.",
+                "Fallback recommendation generated from exercise_matrix_v4_flat.json.",
+                "Please review contraindications and seek medical clearance when needed."
+            ]
         )
     }
 
-    private func fallbackCandidates(for profile: UserProfileInput) -> [SportCatalogItem] {
-        let conservative = catalog.filter {
-            [.walking, .stretching, .yoga, .lowImpactAerobics].contains($0.activity)
-        }
-        let safe = applySafetyGate(profile: profile, from: conservative)
-        if !safe.isEmpty {
-            return safe
-        }
-
-        return catalog.filter { $0.activity == .walking }
-    }
-
-    private func intensityCompatibilityScore(item: SportCatalogItem, preference: IntensityPreference) -> Double {
-        let preferred = preference.targetRange
-        let itemMin = max(2, item.minRPE)
-        let itemMax = min(item.maxRPE, conservativeMaxRPE)
-        let overlapMin = max(preferred.min, itemMin)
-        let overlapMax = min(preferred.max, itemMax)
-
-        if overlapMin <= overlapMax {
-            return 20
-        }
-
-        if preferred.max < itemMin {
-            return 10
-        }
-
-        return 8
-    }
-
-    private func socialCompatibilityScore(activity: ActivityType, preference: SocialPreference) -> Double {
-        guard preference != .either else { return 12 }
-
-        let modes = socialModes(for: activity)
-        return modes.contains(preference) ? 15 : 4
-    }
-
-    private func socialModes(for activity: ActivityType) -> Set<SocialPreference> {
-        switch activity {
-        case .dancing:
-            return [.withFriends, .classes, .solo]
-        case .hiking:
-            return [.withFriends, .solo]
-        case .badminton, .tennisDoubles:
-            return [.withFriends]
-        case .lowImpactAerobics, .aquaAerobics, .indoorCycling, .yoga:
-            return [.classes, .solo]
-        default:
-            return [.solo]
+    private func activityType(forExerciseName name: String) -> ActivityType {
+        switch normalizedToken(name) {
+        case normalizedToken("Brisk walking"): return .briskWalking
+        case normalizedToken("Trail walking"): return .trailWalking
+        case normalizedToken("Nordic walking"): return .nordicWalking
+        case normalizedToken("Flat walking"): return .flatWalking
+        case normalizedToken("Walking"): return .walkingGeneral
+        case normalizedToken("Interval walking"): return .intervalWalking
+        case normalizedToken("Jogging"): return .jogging
+        case normalizedToken("Run-walk intervals"): return .runWalkIntervals
+        case normalizedToken("Road cycling"): return .roadCycling
+        case normalizedToken("Stationary cycling"): return .stationaryCycling
+        case normalizedToken("Recumbent cycling"): return .recumbentCycling
+        case normalizedToken("Elliptical trainer"): return .ellipticalTrainer
+        case normalizedToken("Rowing machine"): return .rowingMachineCardio
+        case normalizedToken("Lap swimming"): return .lapSwimming
+        case normalizedToken("Dance cardio"): return .danceCardio
+        case normalizedToken("Stair climber"): return .stairClimber
+        case normalizedToken("Stair walking"): return .stairWalking
+        case normalizedToken("Pool walking"): return .poolWalking
+        case normalizedToken("Aqua jogging"): return .aquaJogging
+        case normalizedToken("Vinyasa yoga"): return .vinyasaYoga
+        case normalizedToken("Yoga"): return .yoga
+        case normalizedToken("Restorative yoga"): return .restorativeYoga
+        case normalizedToken("Chair marching"): return .chairMarching
+        case normalizedToken("Chair aerobics"): return .chairAerobics
+        case normalizedToken("Tai chi"): return .taiChi
+        default: return .walking
         }
     }
 
-    private func isLowerImpactMatch(
-        item: SportCatalogItem,
-        snapshot: HealthSnapshot?,
-        profile: UserProfileInput
-    ) -> Bool {
-        guard item.impactLevel != .high else { return false }
-        let restingHR = snapshot?.restingHeartRate ?? profile.restingHeartRateRange.midpoint
-        guard let restingHR else { return false }
-        return restingHR >= 80
+    private func minutesDescription(_ range: ClosedRange<Int>) -> String {
+        "\(range.lowerBound)-\(range.upperBound) min/session"
+    }
+
+    private func sessionsDescription(_ range: ClosedRange<Int>) -> String {
+        "\(range.lowerBound)-\(range.upperBound) days/week"
+    }
+
+    private func normalizedToken(_ value: String) -> String {
+        value
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "_", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+            .lowercased()
     }
 }

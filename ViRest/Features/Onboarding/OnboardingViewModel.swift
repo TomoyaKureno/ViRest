@@ -3,6 +3,13 @@ import Combine
 
 @MainActor
 final class OnboardingViewModel: ObservableObject {
+    struct RecommendationSummary: Equatable {
+        let activityName: String
+        let frequencyPerWeek: Int
+        let plannedDurationMinutes: Int
+        let cautions: [String]
+    }
+
     enum HealthImportState: Equatable {
         case idle
         case requestingConsent
@@ -15,33 +22,31 @@ final class OnboardingViewModel: ObservableObject {
     @Published var ageText: String = ""
     @Published var gender: Gender?
 
+    @Published var questionnaireCurrentRHRBand: CurrentRHRBandQuestion = .from61To75
+    @Published var questionnaireTargetRHRGoal: TargetRHRGoalQuestion = .from60To69
+
     @Published var heightCmText: String = ""
     @Published var weightKgText: String = ""
-    @Published var restingHeartRateRange: RestingHeartRateRange = .unknown
 
-    @Published var healthConditions: Set<HealthCondition> = [.none]
-    @Published var injuryLimitation: InjuryLimitation = .noLimitation
+    @Published var healthConcerns: Set<HealthConcernOption> = [.none]
 
     @Published var sessionDuration: SessionDurationOption = .twentyToThirty
-    @Published var daysPerWeek: DaysPerWeekAvailability = .three
-    @Published var preferredTime: PreferredTime = .noPreference
+    @Published var daysPerWeek: DaysPerWeekAvailability = .threeToFour
+    @Published var preferredTime: PreferredTime = .flexible
 
     @Published var environment: SportEnvironment = .both
-    @Published var equipments: Set<Equipment> = [.none]
+    @Published var accessOptions: Set<ExerciseAccessOptionQuestion> = [.none]
 
     @Published var enjoyableActivities: Set<ActivityType> = []
     @Published var intensityPreference: IntensityPreference = .light
     @Published var socialPreference: SocialPreference = .either
     @Published var consistency: ConsistencyLevel = .somewhatConsistent
-
-    @Published var targetRestingHeartRateRange: RestingHeartRateRange = .from60To70
-    @Published var weeklyGoal: WeeklyGoalFrequency = .threeTimesPerWeek
-
-    @Published var acceptedDisclaimer = false
+    @Published var cardioExperienceLevel: CardioExperienceLevel?
 
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var importedHealthSnapshot: HealthSnapshot?
+    @Published var recommendationSummary: RecommendationSummary?
     @Published private(set) var healthImportState: HealthImportState = .idle
 
     private let userProfileRepository: UserProfileRepository
@@ -72,6 +77,10 @@ final class OnboardingViewModel: ObservableObject {
         guard !didAttemptAutoImport else { return }
         didAttemptAutoImport = true
         importHealthData()
+    }
+
+    func shouldPresentHealthKitPrompt() async -> Bool {
+        await healthService.shouldPresentAuthorizationPrompt()
     }
 
     func importHealthData() {
@@ -108,7 +117,7 @@ final class OnboardingViewModel: ObservableObject {
                         self.weightKgText = String(format: "%.1f", weight)
                     }
                     if let rhr = snapshot.restingHeartRate {
-                        self.restingHeartRateRange = Self.range(from: rhr)
+                        self.questionnaireCurrentRHRBand = Self.questionBand(from: rhr)
                     }
                 } else {
                     self.healthImportState = .noData
@@ -119,39 +128,40 @@ final class OnboardingViewModel: ObservableObject {
         }
     }
 
-    func toggleHealthCondition(_ condition: HealthCondition) {
-        if condition == .none {
-            healthConditions = [.none]
+    func toggleHealthConcern(_ concern: HealthConcernOption) {
+        if concern == .none {
+            healthConcerns = [.none]
             return
         }
 
-        if healthConditions.contains(condition) {
-            healthConditions.remove(condition)
+        if healthConcerns.contains(concern) {
+            healthConcerns.remove(concern)
         } else {
-            healthConditions.insert(condition)
+            healthConcerns.insert(concern)
         }
-        healthConditions.remove(.none)
+        healthConcerns.remove(.none)
 
-        if healthConditions.isEmpty {
-            healthConditions = [.none]
+        if healthConcerns.isEmpty {
+            healthConcerns = [.none]
         }
     }
 
-    func toggleEquipment(_ equipment: Equipment) {
-        if equipment == .none {
-            equipments = [.none]
+    func toggleAccessOption(_ option: ExerciseAccessOptionQuestion) {
+        if option == .none {
+            accessOptions = [.none]
             return
         }
 
-        if equipments.contains(equipment) {
-            equipments.remove(equipment)
+        if accessOptions.contains(option) {
+            accessOptions.remove(option)
         } else {
-            equipments.insert(equipment)
+            accessOptions.insert(option)
         }
-        equipments.remove(.none)
 
-        if equipments.isEmpty {
-            equipments = [.none]
+        accessOptions.remove(.none)
+
+        if accessOptions.isEmpty {
+            accessOptions = [.none]
         }
     }
 
@@ -161,9 +171,23 @@ final class OnboardingViewModel: ObservableObject {
         }
     }
 
+    func submitAndCompleteIfValid() {
+        Task {
+            await submitInternal()
+            if recommendationSummary != nil {
+                onCompleted()
+            }
+        }
+    }
+
+    func continueAfterRecommendation() {
+        onCompleted()
+    }
+
     private func submitInternal() async {
         isLoading = true
         errorMessage = nil
+        recommendationSummary = nil
 
         normalizeSelections()
 
@@ -173,10 +197,11 @@ final class OnboardingViewModel: ObservableObject {
         }
 
         let profile = buildProfile()
+        let goalFrequency = derivedGoalFrequency()
 
         do {
             try userProfileRepository.saveProfile(profile)
-            try planRepository.saveGoal(weeklyGoal)
+            try planRepository.saveGoal(goalFrequency)
 
             let snapshot = await healthService.fetchLatestSnapshot(profile: profile)
             importedHealthSnapshot = snapshot
@@ -184,7 +209,7 @@ final class OnboardingViewModel: ObservableObject {
             let request = RecommendationRequest(
                 userProfile: profile,
                 healthSnapshot: snapshot,
-                goalFrequency: weeklyGoal,
+                goalFrequency: goalFrequency,
                 weekStartDate: Date()
             )
             let result = recommendationEngine.recommend(request: request)
@@ -193,8 +218,14 @@ final class OnboardingViewModel: ObservableObject {
             _ = await notificationService.requestAuthorization()
             notificationService.schedulePlanReminders(for: result.weeklyPlan)
 
+            recommendationSummary = RecommendationSummary(
+                activityName: result.primary.displayName,
+                frequencyPerWeek: result.weeklyPlan.sessions.count,
+                plannedDurationMinutes: result.primary.plannedDurationMinutes,
+                cautions: result.primary.cautions
+            )
+
             isLoading = false
-            onCompleted()
         } catch {
             errorMessage = error.localizedDescription
             isLoading = false
@@ -207,41 +238,41 @@ final class OnboardingViewModel: ObservableObject {
             fullName: resolvedName,
             age: Int(ageText),
             gender: gender,
+            questionnaireCurrentRHRBand: questionnaireCurrentRHRBand,
+            questionnaireTargetRHRGoal: questionnaireTargetRHRGoal,
             heightCm: Double(heightCmText),
             weightKg: Double(weightKgText),
-            restingHeartRateRange: restingHeartRateRange,
-            healthConditions: normalizedHealthConditions(),
-            injuryLimitation: injuryLimitation,
+            questionnaireHealthConcerns: normalizedHealthConcerns(),
             sessionDuration: sessionDuration,
             daysPerWeek: daysPerWeek,
             preferredTime: preferredTime,
             environment: environment,
-            equipments: normalizedEquipments(),
+            questionnaireAccessOptions: normalizedAccessOptions(),
             enjoyableActivities: Array(enjoyableActivities),
             intensityPreference: intensityPreference,
             socialPreference: socialPreference,
             consistency: consistency,
-            targetRestingHeartRateRange: targetRestingHeartRateRange,
-            acceptedDisclaimer: acceptedDisclaimer,
+            cardioExperienceLevel: cardioExperienceLevel,
+            acceptedDisclaimer: true,
             updatedAt: Date()
         )
     }
 
     private func normalizeSelections() {
-        if healthConditions.contains(.none), healthConditions.count > 1 {
-            healthConditions.remove(.none)
+        if healthConcerns.contains(.none), healthConcerns.count > 1 {
+            healthConcerns.remove(.none)
         }
 
-        if healthConditions.isEmpty {
-            healthConditions.insert(.none)
+        if healthConcerns.isEmpty {
+            healthConcerns.insert(.none)
         }
 
-        if equipments.contains(.none), equipments.count > 1 {
-            equipments.remove(.none)
+        if accessOptions.isEmpty {
+            accessOptions.insert(.none)
         }
 
-        if equipments.isEmpty {
-            equipments.insert(.none)
+        if accessOptions.contains(.none), accessOptions.count > 1 {
+            accessOptions.remove(.none)
         }
     }
 
@@ -256,28 +287,23 @@ final class OnboardingViewModel: ObservableObject {
             return false
         }
 
-        guard restingHeartRateRange != .unknown else {
-            errorMessage = "Current resting heart rate is required."
+        if height < 80 || height > 250 {
+            errorMessage = "Height seems out of range."
             return false
         }
 
-        if healthConditions.isEmpty {
+        if weight < 20 || weight > 400 {
+            errorMessage = "Weight seems out of range."
+            return false
+        }
+
+        if healthConcerns.isEmpty {
             errorMessage = "Health condition is required."
             return false
         }
 
-        if equipments.isEmpty {
-            errorMessage = "At least one equipment option is required."
-            return false
-        }
-
-        guard targetRestingHeartRateRange != .unknown, targetRestingHeartRateRange != .above90 else {
-            errorMessage = "Target resting heart rate is required."
-            return false
-        }
-
-        guard acceptedDisclaimer else {
-            errorMessage = "Please accept the medical disclaimer before generating your plan."
+        if accessOptions.isEmpty {
+            errorMessage = "At least one access option is required."
             return false
         }
 
@@ -298,34 +324,37 @@ final class OnboardingViewModel: ObservableObject {
         snapshot.vo2Max != nil
     }
 
-    private func normalizedHealthConditions() -> [HealthCondition] {
-        var list = Array(healthConditions)
+    private func normalizedHealthConcerns() -> [HealthConcernOption] {
+        var list = Array(healthConcerns)
         if list.contains(.none), list.count > 1 {
             list.removeAll { $0 == .none }
         }
-        return list
+        return list.sorted { $0.displayName < $1.displayName }
     }
 
-    private func normalizedEquipments() -> [Equipment] {
-        var list = Array(equipments)
-        if list.contains(.none), list.count > 1 {
-            list.removeAll { $0 == .none }
+    private func normalizedAccessOptions() -> [ExerciseAccessOptionQuestion] {
+        Array(accessOptions).sorted { $0.displayName < $1.displayName }
+    }
+
+    private func derivedGoalFrequency() -> WeeklyGoalFrequency {
+        switch daysPerWeek {
+        case .twoToThree:
+            return .twoTimesPerWeek
+        case .threeToFour:
+            return .threeTimesPerWeek
+        case .fourToFive, .fiveToSeven:
+            return .fourPlusPerWeek
         }
-        return list
     }
 
-    private static func range(from restingHeartRate: Double) -> RestingHeartRateRange {
+    private static func questionBand(from restingHeartRate: Double) -> CurrentRHRBandQuestion {
         switch restingHeartRate {
-        case ..<50:
-            return .below50
-        case 50..<60:
-            return .from50To60
-        case 60..<70:
-            return .from60To70
-        case 70..<81:
-            return .from71To80
-        case 81..<91:
-            return .from81To90
+        case ..<61:
+            return .upTo60
+        case 61..<76:
+            return .from61To75
+        case 76..<91:
+            return .from76To90
         default:
             return .above90
         }

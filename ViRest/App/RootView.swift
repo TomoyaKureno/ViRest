@@ -51,7 +51,12 @@ struct RootView: View {
                 }
             case .onboarding:
                 NavigationStack(path: $onboardingCoordinator.path) {
-                    OnboardingView(viewModel: onboardingViewModel)
+                    OnboardingView(
+                        viewModel: onboardingViewModel,
+                        onExitFromFirstQuestion: {
+                            appCoordinator.signOut()
+                        }
+                    )
                 }
             case .main:
                 MainTabView(container: container) {
@@ -63,4 +68,17 @@ struct RootView: View {
             await appCoordinator.bootstrap()
         }
     }
+}
+
+@MainActor
+private struct RootPreviewHost: View {
+    private let container = PreviewSupport.makeSeededContainer()
+
+    var body: some View {
+        RootView(container: container)
+    }
+}
+
+#Preview("Root") {
+    RootPreviewHost()
 }

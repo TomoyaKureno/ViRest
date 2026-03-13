@@ -243,3 +243,30 @@ struct HomeView: View {
         return String(format: "%.1f %@", value, suffix)
     }
 }
+
+@MainActor
+private struct HomePreviewHost: View {
+    private let container: AppContainer
+    private let viewModel: HomeViewModel
+
+    init() {
+        let seededContainer = PreviewSupport.makeSeededContainer()
+        self.container = seededContainer
+        self.viewModel = HomeViewModel(
+            userProfileRepository: seededContainer.userProfileRepository,
+            planRepository: seededContainer.planRepository,
+            checkInRepository: seededContainer.checkInRepository,
+            healthService: seededContainer.healthService,
+            recommendationEngine: seededContainer.recommendationEngine,
+            notificationService: seededContainer.notificationService
+        )
+    }
+
+    var body: some View {
+        HomeView(viewModel: viewModel)
+    }
+}
+
+#Preview("Home") {
+    HomePreviewHost()
+}

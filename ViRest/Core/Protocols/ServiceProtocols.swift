@@ -10,6 +10,7 @@ protocol AuthProviding: AnyObject {
 
 protocol HealthDataProviding: AnyObject {
     var authorizationState: HealthAuthorizationState { get }
+    func shouldPresentAuthorizationPrompt() async -> Bool
     func requestAuthorization() async -> Bool
     func fetchLatestSnapshot(profile: UserProfileInput?) async -> HealthSnapshot
 }

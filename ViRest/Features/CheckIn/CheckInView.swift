@@ -223,3 +223,32 @@ struct CheckInView: View {
         }
     }
 }
+
+@MainActor
+private struct CheckInPreviewHost: View {
+    private let container: AppContainer
+    private let viewModel: CheckInViewModel
+
+    init() {
+        let seededContainer = PreviewSupport.makeSeededContainer()
+        self.container = seededContainer
+        self.viewModel = CheckInViewModel(
+            userProfileRepository: seededContainer.userProfileRepository,
+            planRepository: seededContainer.planRepository,
+            checkInRepository: seededContainer.checkInRepository,
+            badgeRepository: seededContainer.badgeStateRepository,
+            healthService: seededContainer.healthService,
+            planAdjustmentService: seededContainer.planAdjustmentService,
+            gamificationService: seededContainer.gamificationService,
+            notificationService: seededContainer.notificationService
+        )
+    }
+
+    var body: some View {
+        CheckInView(viewModel: viewModel)
+    }
+}
+
+#Preview("Check-In") {
+    CheckInPreviewHost()
+}

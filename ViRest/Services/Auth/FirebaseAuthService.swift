@@ -5,6 +5,7 @@ import Combine
 final class FirebaseAuthService: AuthProviding, ObservableObject {
     private enum Keys {
         static let savedAuthUser = "virest.saved_auth_user"
+        static let hasActiveSession = "virest.has_active_auth_session"
     }
 
     @Published private(set) var authState: AppAuthState = .signedOut
@@ -18,8 +19,16 @@ final class FirebaseAuthService: AuthProviding, ObservableObject {
     }
 
     func restoreSession() async {
+        guard userDefaults.bool(forKey: Keys.hasActiveSession) else {
+            userDefaults.removeObject(forKey: Keys.savedAuthUser)
+            authState = .signedOut
+            return
+        }
+
         guard let data = userDefaults.data(forKey: Keys.savedAuthUser),
               let user = try? decoder.decode(AuthUser.self, from: data) else {
+            userDefaults.removeObject(forKey: Keys.hasActiveSession)
+            userDefaults.removeObject(forKey: Keys.savedAuthUser)
             authState = .signedOut
             return
         }
@@ -57,6 +66,7 @@ final class FirebaseAuthService: AuthProviding, ObservableObject {
 
     func signOut() throws {
         userDefaults.removeObject(forKey: Keys.savedAuthUser)
+        userDefaults.removeObject(forKey: Keys.hasActiveSession)
         authState = .signedOut
     }
 
@@ -64,6 +74,7 @@ final class FirebaseAuthService: AuthProviding, ObservableObject {
         do {
             let data = try encoder.encode(user)
             userDefaults.set(data, forKey: Keys.savedAuthUser)
+            userDefaults.set(true, forKey: Keys.hasActiveSession)
         } catch {
             throw AppError.auth("Failed to persist auth user: \(error.localizedDescription)")
         }

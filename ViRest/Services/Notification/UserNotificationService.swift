@@ -1,5 +1,5 @@
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 
 @MainActor
 final class UserNotificationService: NotificationScheduling {
@@ -23,7 +23,7 @@ final class UserNotificationService: NotificationScheduling {
         let pendingCount = plan.sessions.filter { !$0.isCompleted }.count
         guard pendingCount > 0 else { return }
 
-        let preferredTime = plan.sessions.first?.preferredTime ?? .noPreference
+        let preferredTime = plan.sessions.first?.preferredTime ?? .flexible
 
         let content = UNMutableNotificationContent()
         content.title = "Weekly target pending"
@@ -35,13 +35,13 @@ final class UserNotificationService: NotificationScheduling {
         case .morning:
             components.hour = 7
             components.minute = 0
-        case .lunchBreak:
+        case .midday:
             components.hour = 12
             components.minute = 15
         case .evening:
             components.hour = 18
             components.minute = 30
-        case .noPreference:
+        case .flexible:
             components.hour = 19
             components.minute = 0
         }
@@ -72,11 +72,12 @@ final class UserNotificationService: NotificationScheduling {
     }
 
     func clearPlanReminders() {
-        center.getPendingNotificationRequests { requests in
+        let notificationCenter = center
+        notificationCenter.getPendingNotificationRequests { requests in
             let identifiers = requests
                 .map(\.identifier)
                 .filter { $0.hasPrefix("plan-reminder-") || $0 == "plan-reminder-weekly-target" }
-            self.center.removePendingNotificationRequests(withIdentifiers: identifiers)
+            notificationCenter.removePendingNotificationRequests(withIdentifiers: identifiers)
         }
     }
 }

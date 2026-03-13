@@ -96,8 +96,7 @@ struct ProfileView: View {
 
             row("Height", value: profile.heightCm.map { String(format: "%.0f cm", $0) } ?? "-")
             row("Weight", value: profile.weightKg.map { String(format: "%.1f kg", $0) } ?? "-")
-            row("Target RHR", value: profile.targetRestingHeartRateRange.displayName)
-            row("Intensity", value: profile.intensityPreference.displayName)
+            row("Target RHR", value: profile.questionnaireTargetRHRGoal?.displayName ?? "-")
         }
     }
 
@@ -190,4 +189,28 @@ struct ProfileView: View {
         .background(Color.white.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
+}
+
+@MainActor
+private struct ProfilePreviewHost: View {
+    private let container: AppContainer
+    private let viewModel: ProfileViewModel
+
+    init() {
+        let seededContainer = PreviewSupport.makeSeededContainer()
+        self.container = seededContainer
+        self.viewModel = ProfileViewModel(
+            userProfileRepository: seededContainer.userProfileRepository,
+            planRepository: seededContainer.planRepository,
+            badgeRepository: seededContainer.badgeStateRepository
+        )
+    }
+
+    var body: some View {
+        ProfileView(viewModel: viewModel, onSignOut: { })
+    }
+}
+
+#Preview("Profile") {
+    ProfilePreviewHost()
 }
