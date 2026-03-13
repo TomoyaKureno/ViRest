@@ -16,7 +16,6 @@ final class OnboardingCoordinator: ObservableObject {
 final class MainCoordinator: ObservableObject {
     enum Tab: Hashable {
         case home
-        case checkIn
         case profile
     }
 

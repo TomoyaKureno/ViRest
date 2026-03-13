@@ -80,4 +80,64 @@ final class UserNotificationService: NotificationScheduling {
             notificationCenter.removePendingNotificationRequests(withIdentifiers: identifiers)
         }
     }
+    
+    func scheduleSportReminders(for sports: [FirestoreSportEntry]) {
+        // Clear old sport reminders
+        center.getPendingNotificationRequests { requests in
+            let ids = requests.map(\.identifier)
+                .filter { $0.hasPrefix("sport-reminder-") }
+            self.center.removePendingNotificationRequests(withIdentifiers: ids)
+        }
+
+        for sport in sports {
+            let remaining = sport.weeklyTargetCount - sport.completedThisWeek
+            guard remaining > 0 else { continue }  // Already met — no reminder needed
+
+            let content = UNMutableNotificationContent()
+            content.title = "Weekly target pending"
+            content.body = "You've done \(sport.completedThisWeek)/\(sport.weeklyTargetCount) "
+                + "sessions of \(sport.displayName) this week. \(remaining) more to go!"
+            content.sound = .default
+
+            // Fire on Friday at 6:00 PM
+            var components = DateComponents()
+            components.weekday = 6  // Friday
+            components.hour = 18
+            components.minute = 0
+
+            let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+            let request = UNNotificationRequest(
+                identifier: "sport-reminder-\(sport.id)",
+                content: content,
+                trigger: trigger
+            )
+            center.add(request)
+        }
+    }
+
+    
+    func scheduleWednesdayNudge(for sports: [FirestoreSportEntry]) {
+        center.removePendingNotificationRequests(withIdentifiers: ["mid-week-nudge"])
+
+        let laggingSports = sports.filter { sport in
+            let ratio = Double(sport.completedThisWeek) / Double(sport.weeklyTargetCount)
+            return ratio < 0.4  // Less than 40% done by midweek
+        }
+        guard !laggingSports.isEmpty else { return }
+
+        let names = laggingSports.map(\.displayName).joined(separator: ", ")
+        let content = UNMutableNotificationContent()
+        content.title = "Halfway through the week!"
+        content.body = "Time to make progress on: \(names)."
+        content.sound = .default
+
+        var components = DateComponents()
+        components.weekday = 4  // Wednesday
+        components.hour = 12
+        components.minute = 0
+
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+        center.add(UNNotificationRequest(identifier: "mid-week-nudge", content: content, trigger: trigger))
+    }
+
 }

@@ -1,6 +1,8 @@
 import Foundation
 
+
 enum WeeklyGoalFrequency: String, Codable, CaseIterable, Identifiable {
+    
     case oncePerWeek = "once_per_week"
     case twoTimesPerWeek = "two_times_per_week"
     case threeTimesPerWeek = "three_times_per_week"
@@ -181,7 +183,7 @@ struct WeeklyPlan: Codable, Identifiable, Equatable {
     }
 }
 
-enum ActivityDifficulty: String, Codable, CaseIterable, Identifiable {
+enum ActivityDifficulty: String, Codable, CaseIterable, Identifiable, Hashable {
     case veryEasy = "very_easy"
     case easy
     case moderate
@@ -203,7 +205,7 @@ enum ActivityDifficulty: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-enum FatigueLevel: String, Codable, CaseIterable, Identifiable {
+enum FatigueLevel: String, Codable, CaseIterable, Identifiable, Hashable {
     case notTired = "not_tired"
     case slightlyTired = "slightly_tired"
     case moderatelyTired = "moderately_tired"
@@ -223,7 +225,7 @@ enum FatigueLevel: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-enum PainLevel: String, Codable, CaseIterable, Identifiable {
+enum PainLevel: String, Codable, CaseIterable, Identifiable, Hashable {
     case noPain = "no_pain"
     case mildDiscomfort = "mild_discomfort"
     case moderatePain = "moderate_pain"

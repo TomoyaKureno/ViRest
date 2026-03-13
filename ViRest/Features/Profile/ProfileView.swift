@@ -2,6 +2,39 @@ import SwiftUI
 
 struct ProfileView: View {
     @ObservedObject private var viewModel: ProfileViewModel
+    
+    private var historyCard: some View {
+        SurfaceCard {
+            Text("Recent Activity")
+                .font(AppTypography.title(18))
+                .foregroundStyle(AppPalette.textPrimary)
+
+            if viewModel.checkInHistory.isEmpty {
+                Text("No sessions logged yet.")
+                    .font(AppTypography.body(14))
+                    .foregroundStyle(AppPalette.textSecondary)
+            } else {
+                ForEach(viewModel.checkInHistory.prefix(10)) { entry in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.sportName)
+                                .font(AppTypography.body(14))
+                                .foregroundStyle(AppPalette.textPrimary)
+                            Text(entry.date.formatted(date: .abbreviated, time: .omitted))
+                                .font(AppTypography.caption(12))
+                                .foregroundStyle(AppPalette.textSecondary)
+                        }
+                        Spacer()
+                        Text("\(entry.durationMinutes) min")
+                            .font(AppTypography.caption(13))
+                            .foregroundStyle(AppPalette.accent)
+                    }
+                    Divider().overlay(Color.white.opacity(0.1))
+                }
+            }
+        }
+    }
+
     private let onSignOut: () -> Void
 
     init(viewModel: ProfileViewModel, onSignOut: @escaping () -> Void) {

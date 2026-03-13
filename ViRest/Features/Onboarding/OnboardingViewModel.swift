@@ -18,6 +18,10 @@ final class OnboardingViewModel: ObservableObject {
         case denied
     }
 
+    
+    private let firestoreUserRepository: FirestoreUserRepository
+    private let authService: AuthProviding
+    
     @Published var fullName: String = ""
     @Published var ageText: String = ""
     @Published var gender: Gender?
@@ -63,6 +67,8 @@ final class OnboardingViewModel: ObservableObject {
         healthService: HealthDataProviding,
         recommendationEngine: RecommendationProviding,
         notificationService: NotificationScheduling,
+        firestoreUserRepository: FirestoreUserRepository,
+        authService: AuthProviding,
         onCompleted: @escaping () -> Void
     ) {
         self.userProfileRepository = userProfileRepository
@@ -70,6 +76,8 @@ final class OnboardingViewModel: ObservableObject {
         self.healthService = healthService
         self.recommendationEngine = recommendationEngine
         self.notificationService = notificationService
+        self.firestoreUserRepository = firestoreUserRepository
+        self.authService = authService
         self.onCompleted = onCompleted
     }
 
@@ -187,30 +195,40 @@ final class OnboardingViewModel: ObservableObject {
     private func submitInternal() async {
         isLoading = true
         errorMessage = nil
-        recommendationSummary = nil
 
-        normalizeSelections()
-
-        guard validateMandatoryInputs() else {
-            isLoading = false
-            return
+        guard acceptedDisclaimer else {
+            errorMessage = "Please accept the medical disclaimer."
+            isLoading = false; return
+        }
+        guard !fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = "Please fill in your name."
+            isLoading = false; return
         }
 
+        normalizeSelections()
         let profile = buildProfile()
         let goalFrequency = derivedGoalFrequency()
 
         do {
+            // 1. Save profile locally (existing logic)
             try userProfileRepository.saveProfile(profile)
             try planRepository.saveGoal(goalFrequency)
 
-            let snapshot = await healthService.fetchLatestSnapshot(profile: profile)
-            importedHealthSnapshot = snapshot
+            // 2. Generate top-3 sport plan using sports.json
+            let sportPlan = buildSportPlan(profile: profile)
 
+            // 3. Save to Firestore
+            guard case .signedIn(let user) = authService.authState else {
+                throw AppError.auth("Not authenticated")
+            }
+            try await firestoreUserRepository.saveProfile(userId: user.id, profile: profile)
+            try await firestoreUserRepository.saveSportPlan(userId: user.id, plan: sportPlan)
+
+            // 4. Keep existing local plan for offline support
+            let snapshot = await healthService.fetchLatestSnapshot(profile: profile)
             let request = RecommendationRequest(
-                userProfile: profile,
-                healthSnapshot: snapshot,
-                goalFrequency: goalFrequency,
-                weekStartDate: Date()
+                userProfile: profile, healthSnapshot: snapshot,
+                goalFrequency: weeklyGoal, weekStartDate: Date()
             )
             let result = recommendationEngine.recommend(request: request)
             try planRepository.saveCurrentPlan(result.weeklyPlan)
@@ -231,6 +249,96 @@ final class OnboardingViewModel: ObservableObject {
             isLoading = false
         }
     }
+
+    private func buildSportPlan(profile: UserProfileInput) -> FirestoreSportPlan {
+        let loader = SportsCatalogLoader.shared
+        let rhrBand = profile.restingHeartRateRange.sportsJsonBand
+        let bmiCategory = BMICalculator.category(
+            heightCm: profile.heightCm, weightKg: profile.weightKg
+        )
+        let userEnv = profile.environment.rawValue.capitalized
+        let userContraindications = profile.healthConditions.map { $0.displayName }
+
+        print("🏃 Building plan — RHR band: \(rhrBand), BMI: \(bmiCategory), env: \(userEnv)")
+        print("🏃 Total exercises available: \(loader.exercises.count)")
+
+        var scored: [(name: String, prescription: SportPrescription, score: Double)] = []
+
+        for exercise in loader.exercises {
+            // Try exact RHR band first, then fall back to any available band
+            guard let presc = loader.prescription(
+                for: exercise.name,
+                rhrBand: rhrBand,
+                bmiCategory: bmiCategory
+            ) else { continue }
+
+            // Skip if any contraindication matches user's conditions
+            let isContraindicated = presc.contraindications.contains { contra in
+                userContraindications.contains {
+                    $0.localizedCaseInsensitiveContains(contra) ||
+                    contra.localizedCaseInsensitiveContains($0)
+                }
+            }
+            if isContraindicated { continue }
+
+            var score = 50.0
+
+            // Environment match bonus
+            let envMatch = exercise.environment == "Both"
+                || exercise.environment == userEnv
+                || profile.environment == .both
+            if envMatch { score += 20 }
+
+            // Enjoyable activity match bonus
+            let activityMatch = profile.enjoyableActivities.contains { act in
+                exercise.name.localizedCaseInsensitiveContains(act.displayName) ||
+                act.displayName.localizedCaseInsensitiveContains(exercise.name)
+            }
+            if activityMatch { score += 30 }
+
+            scored.append((name: exercise.name, prescription: presc, score: score))
+        }
+
+        print("🏃 Scored \(scored.count) eligible exercises")
+
+        // If still empty (very restrictive profile), grab ANY 3 exercises with any band/BMI
+        if scored.isEmpty {
+            print("⚠️ No exercises matched — using fallback scoring")
+            for exercise in loader.exercises {
+                guard let presc = loader.prescription(
+                    for: exercise.name,
+                    rhrBand: rhrBand,
+                    bmiCategory: "Any BMI"
+                ) ?? loader.prescription(
+                    for: exercise.name,
+                    rhrBand: exercise.rhrBands.first?.rhrBand ?? rhrBand,
+                    bmiCategory: bmiCategory
+                ) else { continue }
+
+                scored.append((name: exercise.name, prescription: presc, score: 50.0))
+                if scored.count >= 3 { break }
+            }
+        }
+
+        // Take top 3
+        let top3 = scored.sorted { $0.score > $1.score }.prefix(3)
+        print("🏃 Top 3: \(top3.map { $0.name })")
+
+        let weekReset = Date().startOfWeek()
+        let sports = top3.map { item in
+            FirestoreSportEntry(
+                id: item.name.lowercased().replacingOccurrences(of: " ", with: "_"),
+                displayName: item.name,
+                weeklyTargetCount: item.prescription.minDaysPerWeek,
+                completedThisWeek: 0,
+                durationMinutes: item.prescription.minDurationMinutes,
+                weekResetDate: weekReset
+            )
+        }
+
+        return FirestoreSportPlan(generatedAt: Date(), sports: Array(sports))
+    }
+
 
     private func buildProfile() -> UserProfileInput {
         let resolvedName = fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "ViRest User" : fullName

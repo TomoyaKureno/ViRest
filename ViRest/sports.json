@@ -1,0 +1,1516 @@
+{
+  "exercises": [
+    {
+      "name": "Brisk walking",
+      "environment": "Both",
+      "impactLevel": "Low–moderate impact",
+      "equipment": [
+        "Treadmill",
+        "Walking shoes"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "<= 60 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Rapid mileage increases may cause foot/ankle overuse"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 30,
+                  "maxMinutes": 45
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 4,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "76 – 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Monitor symptoms of tachycardia"
+              ],
+              "contraindications": [
+                "Unexplained resting tachycardia"
+              ],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 30,
+                  "maxMinutes": 40
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 4,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Trail walking",
+      "environment": "Outdoor",
+      "impactLevel": null,
+      "equipment": [
+        "Hiking shoes"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "<= 60 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Downhill terrain may stress knees/ankles"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 45,
+                  "maxMinutes": 90
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 1,
+                  "maxDaysPerWeek": 3
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Nordic walking",
+      "environment": "Outdoor",
+      "impactLevel": null,
+      "equipment": [
+        "Nordic walking poles",
+        "Walking shoes"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "61 – 75 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Proper technique required"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 30,
+                  "maxMinutes": 40
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 4,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Flat walking",
+      "environment": "Both",
+      "impactLevel": null,
+      "equipment": [
+        "Walking shoes",
+        "Treadmill"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "61 – 75 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Overweight",
+              "keyCautions": [
+                "Increased plantar and knee load"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 30,
+                  "maxMinutes": 40
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 4,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "76 – 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Overweight",
+              "keyCautions": [
+                "Knee and foot loading"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": true,
+                "startPhase": {
+                  "minMinutes": 20,
+                  "maxMinutes": 30
+                },
+                "targetPhase": {
+                  "minMinutes": 30,
+                  "maxMinutes": 40
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": true,
+                "startPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 3
+                },
+                "targetPhase": {
+                  "minDaysPerWeek": 4,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "> 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Overweight",
+              "keyCautions": [
+                "Monitor dizziness"
+              ],
+              "contraindications": [
+                "Chest pain during activity",
+                "Palpitations during activity"
+              ],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 10,
+                  "maxMinutes": 20
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Walking",
+      "environment": "Outdoor",
+      "impactLevel": null,
+      "equipment": [
+        "Walking shoes"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "76 – 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Obese",
+              "keyCautions": [
+                "Joint loading"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": true,
+                "startPhase": {
+                  "minMinutes": 10,
+                  "maxMinutes": 20
+                },
+                "targetPhase": {
+                  "minMinutes": 20,
+                  "maxMinutes": 30
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "> 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Light activity only"
+              ],
+              "contraindications": [
+                "RHR > 90 without medical evaluation"
+              ],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 10,
+                  "maxMinutes": 20
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Interval walking",
+      "environment": "Both",
+      "impactLevel": null,
+      "equipment": [
+        "Walking shoes"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "76 – 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Avoid excessive intensity"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 25,
+                  "maxMinutes": 35
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 4
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Jogging",
+      "environment": "Both",
+      "impactLevel": "Moderate impact",
+      "equipment": [
+        "Running shoes"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "<= 60 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Progress gradually from walking"
+              ],
+              "contraindications": [
+                "Knee stress injury",
+                "Hip stress injury"
+              ],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 25,
+                  "maxMinutes": 40
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 4
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Run-walk intervals",
+      "environment": "Both",
+      "impactLevel": null,
+      "equipment": [
+        "Running shoes"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "61 – 75 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Gradual progression recommended"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 25,
+                  "maxMinutes": 35
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 4
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Road cycling",
+      "environment": "Outdoor",
+      "impactLevel": "Low impact",
+      "equipment": [
+        "Bicycle",
+        "Helmet"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "<= 60 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Ensure proper bike fit"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 40,
+                  "maxMinutes": 60
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "61 – 75 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Overweight",
+              "keyCautions": [
+                "Saddle discomfort may occur"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 40,
+                  "maxMinutes": 60
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 4
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Stationary cycling",
+      "environment": "Indoor",
+      "impactLevel": "Low impact",
+      "equipment": [
+        "Stationary bike"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "<= 60 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Avoid very high resistance early"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 30,
+                  "maxMinutes": 45
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "61 – 75 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Overweight",
+              "keyCautions": [
+                "Proper seat adjustment required"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 30,
+                  "maxMinutes": 45
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "76 – 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Hydration and gradual load increase"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 30,
+                  "maxMinutes": 40
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            },
+            {
+              "bmiCategory": "Overweight",
+              "keyCautions": [
+                "Monitor blood pressure"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 25,
+                  "maxMinutes": 40
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Recumbent cycling",
+      "environment": "Indoor",
+      "impactLevel": "Low impact",
+      "equipment": [
+        "Recumbent bike"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "61 – 75 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Obese",
+              "keyCautions": [
+                "Monitor back support"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 25,
+                  "maxMinutes": 40
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "76 – 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Obese",
+              "keyCautions": [
+                "Monitor breathing difficulty"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 15,
+                  "maxMinutes": 30
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "> 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Overweight",
+              "keyCautions": [
+                "Monitor blood pressure"
+              ],
+              "contraindications": [
+                "Severe cardiovascular symptoms"
+              ],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 10,
+                  "maxMinutes": 20
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            },
+            {
+              "bmiCategory": "Obese",
+              "keyCautions": [
+                "Monitor breathing and fatigue"
+              ],
+              "contraindications": [
+                "Chest pain during activity",
+                "Orthopnea"
+              ],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 10,
+                  "maxMinutes": 20
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Elliptical trainer",
+      "environment": "Indoor",
+      "impactLevel": "Low impact",
+      "equipment": [
+        "Elliptical trainer"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "<= 60 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Incorrect stride length may cause hip/back discomfort"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 30,
+                  "maxMinutes": 45
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "61 – 75 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Overweight",
+              "keyCautions": [
+                "Incorrect posture may strain hips/back"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 25,
+                  "maxMinutes": 40
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            },
+            {
+              "bmiCategory": "Obese",
+              "keyCautions": [
+                "Hip/back strain possible"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 15,
+                  "maxMinutes": 30
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 4
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "76 – 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Joint discomfort monitoring"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 25,
+                  "maxMinutes": 35
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 4
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Rowing machine",
+      "environment": "Indoor",
+      "impactLevel": null,
+      "equipment": [
+        "Rowing machine"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "<= 60 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Maintain proper back posture"
+              ],
+              "contraindications": [
+                "Low back disorder"
+              ],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 20,
+                  "maxMinutes": 30
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 2,
+                  "maxDaysPerWeek": 4
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "76 – 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Maintain neutral spine posture"
+              ],
+              "contraindications": [
+                "Low back injury"
+              ],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 15,
+                  "maxMinutes": 25
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 2,
+                  "maxDaysPerWeek": 3
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Lap swimming",
+      "environment": "Indoor",
+      "impactLevel": "Low impact",
+      "equipment": [
+        "Swimming pool"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "<= 60 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Shoulder overuse risk"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 25,
+                  "maxMinutes": 40
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 4
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Dance cardio",
+      "environment": "Indoor",
+      "impactLevel": "Low–moderate impact",
+      "equipment": [],
+      "rhrBands": [
+        {
+          "rhrBand": "<= 60 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Knee/ankle impact on hard floors"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 30,
+                  "maxMinutes": 45
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 2,
+                  "maxDaysPerWeek": 4
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "61 – 75 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Overweight",
+              "keyCautions": [
+                "Balance and joint stress"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 30,
+                  "maxMinutes": 40
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 2,
+                  "maxDaysPerWeek": 4
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "76 – 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Landing stability"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 25,
+                  "maxMinutes": 40
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 2,
+                  "maxDaysPerWeek": 4
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Stair climber",
+      "environment": "Indoor",
+      "impactLevel": null,
+      "equipment": [
+        "Stair climber machine"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "<= 60 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Normal",
+              "keyCautions": [
+                "Monitor knee discomfort"
+              ],
+              "contraindications": [
+                "Patellofemoral pain",
+                "Knee osteoarthritis"
+              ],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 20,
+                  "maxMinutes": 30
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 2,
+                  "maxDaysPerWeek": 4
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Stair walking",
+      "environment": "Indoor",
+      "impactLevel": null,
+      "equipment": [
+        "Stairs"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "61 – 75 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Overweight",
+              "keyCautions": [
+                "Knee stress possible"
+              ],
+              "contraindications": [
+                "Severe knee pain"
+              ],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 10,
+                  "maxMinutes": 20
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 2,
+                  "maxDaysPerWeek": 3
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Pool walking",
+      "environment": "Indoor",
+      "impactLevel": "Low impact",
+      "equipment": [
+        "Swimming pool"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "61 – 75 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Overweight",
+              "keyCautions": [
+                "Pool entry and exit safety"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 30,
+                  "maxMinutes": 45
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            },
+            {
+              "bmiCategory": "Obese",
+              "keyCautions": [
+                "Pool access safety"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 25,
+                  "maxMinutes": 40
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "76 – 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Overweight",
+              "keyCautions": [
+                "Skin infection risk in pools"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 25,
+                  "maxMinutes": 40
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            },
+            {
+              "bmiCategory": "Obese",
+              "keyCautions": [
+                "Pool entry safety"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 15,
+                  "maxMinutes": 30
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "> 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Overweight",
+              "keyCautions": [
+                "Pool safety"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 10,
+                  "maxMinutes": 25
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Aqua jogging",
+      "environment": "Indoor",
+      "impactLevel": "Low impact",
+      "equipment": [
+        "Swimming pool",
+        "Flotation belt"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "61 – 75 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Obese",
+              "keyCautions": [
+                "Pool access safety"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 25,
+                  "maxMinutes": 40
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Vinyasa yoga",
+      "environment": "Indoor",
+      "impactLevel": null,
+      "equipment": [
+        "Yoga mat"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "61 – 75 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Overweight",
+              "keyCautions": [
+                "Wrist or kneeling discomfort"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 30,
+                  "maxMinutes": 60
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 2,
+                  "maxDaysPerWeek": 3
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Yoga",
+      "environment": "Indoor",
+      "impactLevel": null,
+      "equipment": [
+        "Yoga mat"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "76 – 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Obese",
+              "keyCautions": [
+                "Avoid extreme spinal flexion"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 20,
+                  "maxMinutes": 40
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 7
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Restorative yoga",
+      "environment": "Indoor",
+      "impactLevel": null,
+      "equipment": [
+        "Yoga mat"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "> 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Any BMI",
+              "keyCautions": [
+                "Use as relaxation support"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 15,
+                  "maxMinutes": 30
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 7
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Chair marching",
+      "environment": "Indoor",
+      "impactLevel": "Low impact",
+      "equipment": [
+        "Stable chair"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "61 – 75 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Obese",
+              "keyCautions": [
+                "Ensure stable chair"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 15,
+                  "maxMinutes": 30
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "76 – 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Obese",
+              "keyCautions": [
+                "Chair stability"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 10,
+                  "maxMinutes": 25
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 4,
+                  "maxDaysPerWeek": 6
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Chair aerobics",
+      "environment": "Indoor",
+      "impactLevel": "Low impact",
+      "equipment": [
+        "Stable chair"
+      ],
+      "rhrBands": [
+        {
+          "rhrBand": "76 – 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Overweight",
+              "keyCautions": [
+                "Fall risk if chair is unstable"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 15,
+                  "maxMinutes": 30
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 3,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "rhrBand": "> 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Obese",
+              "keyCautions": [
+                "Supervision recommended"
+              ],
+              "contraindications": [
+                "Severe cardiovascular instability"
+              ],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 10,
+                  "maxMinutes": 20
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 4,
+                  "maxDaysPerWeek": 6
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Tai chi",
+      "environment": "Both",
+      "impactLevel": null,
+      "equipment": [],
+      "rhrBands": [
+        {
+          "rhrBand": "76 – 90 bpm",
+          "bmiRules": [
+            {
+              "bmiCategory": "Overweight",
+              "keyCautions": [
+                "Outdoor slip hazards"
+              ],
+              "contraindications": [],
+              "durationPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minMinutes": 30,
+                  "maxMinutes": 45
+                }
+              },
+              "weeklyFrequencyPrescription": {
+                "isProgression": false,
+                "standardPhase": {
+                  "minDaysPerWeek": 2,
+                  "maxDaysPerWeek": 5
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

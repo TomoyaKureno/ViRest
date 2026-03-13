@@ -20,7 +20,8 @@ struct RootView: View {
             authService: container.authService,
             onAuthenticated: {
                 appCoordinator.didAuthenticate()
-            }
+            },
+            firestoreUserRepository: container.firestoreUserRepository
         ))
 
         _onboardingViewModel = StateObject(wrappedValue: OnboardingViewModel(
@@ -29,6 +30,8 @@ struct RootView: View {
             healthService: container.healthService,
             recommendationEngine: container.recommendationEngine,
             notificationService: container.notificationService,
+            firestoreUserRepository: container.firestoreUserRepository,
+            authService: container.authService,
             onCompleted: {
                 appCoordinator.didCompleteOnboarding()
             }

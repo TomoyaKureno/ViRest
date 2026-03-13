@@ -2,10 +2,10 @@ import SwiftUI
 
 struct HomeView: View {
     @ObservedObject private var viewModel: HomeViewModel
+    @State private var checkInSheetVM: CheckInSheetViewModel?
+    @State private var pendingConfirmSport: FirestoreSportEntry?
 
-    init(viewModel: HomeViewModel) {
-        self.viewModel = viewModel
-    }
+    init(viewModel: HomeViewModel) { self.viewModel = viewModel }
 
     var body: some View {
         NavigationStack {
@@ -14,21 +14,23 @@ struct HomeView: View {
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 14) {
-                        heroHeader
+                        titleCard
 
-                        if let info = viewModel.infoMessage {
-                            infoBanner(info)
-                        }
-
-                        if let snapshot = viewModel.healthSnapshot {
-                            healthCard(snapshot)
-                        }
-
-                        if let plan = viewModel.plan {
-                            recommendationCard(plan)
-                            sessionCard(plan)
-                        } else {
+                        if viewModel.isLoading {
+                            ProgressView().tint(.white).padding(.top, 40)
+                        } else if viewModel.sports.isEmpty {
                             emptyCard
+                        } else {
+                            ForEach(viewModel.sports) { sport in
+                                SportCheckInCard(sport: sport) {
+                                    // Tap '+' → show confirmation first
+                                    pendingConfirmSport = sport
+                                }
+                            }
+                        }
+
+                        if let msg = viewModel.checkInSuccess {
+                            successBanner(msg)
                         }
                     }
                     .padding(16)
@@ -37,20 +39,38 @@ struct HomeView: View {
             }
             .navigationTitle("Weekly Plan")
             .toolbarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        viewModel.regenerateNow()
-                    } label: {
-                        Image(systemName: "arrow.clockwise.circle.fill")
-                            .font(.system(size: 22))
-                            .foregroundStyle(AppPalette.accent)
+            .task { viewModel.load() }
+
+            // ── Step 1: Confirmation alert
+            .confirmationDialog(
+                "Log a session?",
+                isPresented: Binding(
+                    get: { pendingConfirmSport != nil },
+                    set: { if !$0 { pendingConfirmSport = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Yes, I completed this session") {
+                    if let sport = pendingConfirmSport {
+                        let vm = viewModel.makeCheckInSheetViewModel(for: sport)
+                        checkInSheetVM = vm
+                        pendingConfirmSport = nil
                     }
                 }
+                Button("Cancel", role: .cancel) {
+                    pendingConfirmSport = nil
+                }
+            } message: {
+                if let sport = pendingConfirmSport {
+                    Text("Did you complete a \(sport.displayName) session?")
+                }
             }
-            .task {
-                viewModel.load()
+
+            // ── Step 2: Check-in sheet (only opens after confirmation)
+            .sheet(item: $checkInSheetVM) { vm in
+                CheckInSheetView(viewModel: vm)
             }
+
             .alert("Error", isPresented: Binding(
                 get: { viewModel.errorMessage != nil },
                 set: { _ in viewModel.errorMessage = nil }
@@ -62,185 +82,64 @@ struct HomeView: View {
         }
     }
 
-    private var heroHeader: some View {
+    // ── Title card
+    private var titleCard: some View {
         SurfaceCard {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Cardio recommendation")
-                        .font(AppTypography.caption(13))
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Your title")
+                        .font(AppTypography.caption(12))
                         .foregroundStyle(AppPalette.textSecondary)
-
-                    Text("Lower resting HR with a safer weekly rhythm")
-                        .font(AppTypography.title(24))
+                    Text(viewModel.currentTitle.isEmpty ? "Rookie" : viewModel.currentTitle)
+                        .font(AppTypography.hero(28))
                         .foregroundStyle(AppPalette.textPrimary)
                 }
-
-                Spacer(minLength: 8)
-
-                if let plan = viewModel.plan {
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text("\(plan.sessions.filter { $0.isCompleted }.count)/\(plan.sessions.count)")
-                            .font(AppTypography.hero(24))
-                            .foregroundStyle(AppPalette.textPrimary)
-                        Text("sessions done")
-                            .font(AppTypography.caption(12))
-                            .foregroundStyle(AppPalette.textSecondary)
-                    }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("\(viewModel.firestoreUser?.totalActionsCompleted ?? 0)")
+                        .font(AppTypography.hero(28))
+                        .foregroundStyle(AppPalette.accent)
+                    Text("total sessions")
+                        .font(AppTypography.caption(12))
+                        .foregroundStyle(AppPalette.textSecondary)
                 }
-            }
-        }
-    }
-
-    private func infoBanner(_ text: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "sparkles")
-                .foregroundStyle(.white)
-            Text(text)
-                .font(AppTypography.caption(13))
-                .foregroundStyle(.white)
-            Spacer()
-        }
-        .padding(12)
-        .background(
-            LinearGradient(
-                colors: [AppPalette.auroraA.opacity(0.8), AppPalette.auroraB.opacity(0.8)],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
-    private func healthCard(_ snapshot: HealthSnapshot) -> some View {
-        SurfaceCard {
-            Text("Health Snapshot")
-                .font(AppTypography.title(21))
-                .foregroundStyle(AppPalette.textPrimary)
-
-            metricGrid(snapshot)
-        }
-    }
-
-    private func recommendationCard(_ plan: WeeklyPlan) -> some View {
-        SurfaceCard {
-            Text("Primary Recommendation")
-                .font(AppTypography.title(21))
-                .foregroundStyle(AppPalette.textPrimary)
-
-            Text(plan.primaryRecommendation.displayName)
-                .font(AppTypography.hero(28))
-                .foregroundStyle(AppPalette.textPrimary)
-
-            Text("Target: \(plan.goalFrequency.sessionsPerWeek) activity sessions per week")
-                .font(AppTypography.body(15))
-                .foregroundStyle(AppPalette.textSecondary)
-
-            Text("\(plan.primaryRecommendation.plannedDurationMinutes) min/session · RPE \(plan.primaryRecommendation.targetRPE.min)-\(plan.primaryRecommendation.targetRPE.max)")
-                .font(AppTypography.body(15))
-                .foregroundStyle(AppPalette.textSecondary)
-
-            ForEach(plan.primaryRecommendation.reasons, id: \.self) { reason in
-                Text("• \(reason)")
-                    .font(AppTypography.caption(13))
-                    .foregroundStyle(AppPalette.textSecondary)
-            }
-
-            if !plan.alternatives.isEmpty {
-                Divider().overlay(.white.opacity(0.2))
-                Text("Alternatives")
-                    .font(AppTypography.caption(13))
-                    .foregroundStyle(AppPalette.textSecondary)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(plan.alternatives) { alternative in
-                        HStack {
-                            Text(alternative.displayName)
-                                .font(AppTypography.body(14))
-                                .foregroundStyle(AppPalette.textPrimary)
-                            Spacer()
-                            Text("\(Int(alternative.score))")
-                                .font(AppTypography.caption(12))
-                                .foregroundStyle(AppPalette.textSecondary)
-                        }
-                        .padding(.vertical, 7)
-                        .padding(.horizontal, 10)
-                        .background(Color.white.opacity(0.07))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    }
-                }
-            }
-        }
-    }
-
-    private func sessionCard(_ plan: WeeklyPlan) -> some View {
-        SurfaceCard {
-            Text("This Week")
-                .font(AppTypography.title(21))
-                .foregroundStyle(AppPalette.textPrimary)
-
-            ForEach(plan.sessions) { session in
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: session.isCompleted ? "checkmark.circle.fill" : "circle.dashed")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(session.isCompleted ? AppPalette.accent : AppPalette.textSecondary)
-                        .padding(.top, 2)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(session.sessionTitle) · \(session.activity.displayName)")
-                            .font(AppTypography.body(15))
-                            .foregroundStyle(AppPalette.textPrimary)
-
-                        Text("\(session.plannedDurationMinutes) min · RPE \(session.targetRPE.min)-\(session.targetRPE.max)")
-                            .font(AppTypography.caption(12))
-                            .foregroundStyle(AppPalette.textSecondary)
-                    }
-                    Spacer()
-                }
-                .padding(.vertical, 6)
             }
         }
     }
 
     private var emptyCard: some View {
         SurfaceCard {
-            Text("No plan available yet.")
-                .font(AppTypography.body(15))
-                .foregroundStyle(AppPalette.textSecondary)
+            VStack(spacing: 12) {
+                Image(systemName: "waveform.path.ecg")
+                    .font(.system(size: 36))
+                    .foregroundStyle(AppPalette.accent)
+                Text("No plan yet")
+                    .font(AppTypography.title(20))
+                    .foregroundStyle(AppPalette.textPrimary)
+                Text("Complete onboarding to get your personalised sport recommendations.")
+                    .font(AppTypography.body(14))
+                    .foregroundStyle(AppPalette.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
         }
     }
 
-    private func metricGrid(_ snapshot: HealthSnapshot) -> some View {
-        VStack(spacing: 8) {
-            metricRow(leftLabel: "Resting HR", leftValue: formatted(snapshot.restingHeartRate, suffix: "bpm"), rightLabel: "Walking HR", rightValue: formatted(snapshot.walkingHeartRateAverage, suffix: "bpm"))
-            metricRow(leftLabel: "VO2 Max", leftValue: formatted(snapshot.vo2Max, suffix: "ml/kg/min"), rightLabel: "HR Recovery", rightValue: formatted(snapshot.heartRateRecovery, suffix: "bpm"))
-        }
-    }
-
-    private func metricRow(leftLabel: String, leftValue: String, rightLabel: String, rightValue: String) -> some View {
+    private func successBanner(_ msg: String) -> some View {
         HStack(spacing: 8) {
-            metricCell(label: leftLabel, value: leftValue)
-            metricCell(label: rightLabel, value: rightValue)
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.white)
+            Text(msg).font(AppTypography.body(14)).foregroundStyle(.white)
+            Spacer()
         }
-    }
-
-    private func metricCell(label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .font(AppTypography.caption(12))
-                .foregroundStyle(AppPalette.textSecondary)
-            Text(value)
-                .font(AppTypography.title(16))
-                .foregroundStyle(AppPalette.textPrimary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(Color.white.opacity(0.08))
+        .padding(12)
+        .background(Color.green.opacity(0.85))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private func formatted(_ value: Double?, suffix: String) -> String {
-        guard let value else { return "-" }
-        return String(format: "%.1f %@", value, suffix)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                viewModel.checkInSuccess = nil
+            }
+        }
     }
 }
 

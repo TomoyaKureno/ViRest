@@ -1,0 +1,10 @@
+# --- Security: Ignore these first! ---
+GoogleService-Info.plist
+*.plist
+*.env
+
+# --- Xcode/Mac noise ---
+.DS_Store
+DerivedData/
+*.xcuserstate
+*.xcuserdatad
