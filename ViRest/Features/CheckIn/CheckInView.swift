@@ -153,11 +153,6 @@ struct CheckInView: View {
                     .font(AppTypography.caption(12))
                     .foregroundStyle(AppPalette.textSecondary)
             }
-
-            questionLabel("Additional notes (optional)")
-            TextField("Notes (optional)", text: $viewModel.notes, axis: .vertical)
-                .lineLimit(2...4)
-                .appFieldStyle()
         }
     }
 

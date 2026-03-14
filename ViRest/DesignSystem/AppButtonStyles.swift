@@ -37,3 +37,25 @@ struct SecondaryActionButtonStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.92 : 1)
     }
 }
+
+struct CircularNavigationBackButtonStyle: ButtonStyle {
+    var size: CGFloat = 44
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 20, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: size, height: size)
+            .background(
+                Circle()
+                    .fill(Color.white.opacity(0.06))
+            )
+            .overlay(
+                Circle()
+                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
+            )
+            .contentShape(Circle())
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .opacity(configuration.isPressed ? 0.9 : 1)
+    }
+}

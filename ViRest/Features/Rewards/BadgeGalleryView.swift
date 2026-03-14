@@ -3,7 +3,7 @@ import SwiftUI
 struct BadgeGalleryView: View {
     @ObservedObject var viewModel: RewardsViewModel
     @State private var selectedBadgeType: BadgeType?
-    @State private var detailSheetHeight: CGFloat = 320
+    @State private var detailSheetHeight: CGFloat = 280
 
     private let columns = [
         GridItem(.adaptive(minimum: 90, maximum: 120), spacing: 14)
@@ -30,9 +30,9 @@ struct BadgeGalleryView: View {
                 .onIntrinsicHeightChange { contentHeight in
                     detailSheetHeight = SheetSizing.fittedHeight(
                         from: contentHeight,
-                        minHeight: 260,
-                        maxFraction: 0.78,
-                        extra: 24
+                        minHeight: 200,
+                        maxFraction: 0.58,
+                        extra: 16
                     )
                 }
                 .presentationDetents([.height(detailSheetHeight)])
@@ -141,6 +141,7 @@ struct BadgeGalleryView: View {
                     .foregroundStyle(AppPalette.textSecondary)
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
         .padding(16)
         .presentationBackground(Color.richBlack)
     }

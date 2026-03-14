@@ -10,7 +10,7 @@ import SwiftUI
 struct CheckInSheetView: View {
     @ObservedObject var viewModel: CheckInSheetViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var sheetHeight: CGFloat = 560
+    @State private var sheetHeight: CGFloat = 470
 
     var body: some View {
         ZStack {
@@ -32,13 +32,15 @@ struct CheckInSheetView: View {
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 40)
+                .padding(.bottom, 24)
                 .onIntrinsicHeightChange { contentHeight in
+                    let minHeight: CGFloat = viewModel.state == .form ? 340 : 260
+                    let maxFraction: CGFloat = viewModel.state == .form ? 0.78 : 0.66
                     sheetHeight = SheetSizing.fittedHeight(
                         from: contentHeight,
-                        minHeight: 340,
-                        maxFraction: 0.88,
-                        extra: 24
+                        minHeight: minHeight,
+                        maxFraction: maxFraction,
+                        extra: 12
                     )
                 }
             }
@@ -102,19 +104,6 @@ struct CheckInSheetView: View {
                 }
             }
 
-            // Notes
-            questionCard(title: "Additional notes (optional)", icon: "note.text") {
-                AnyView(
-                    TextField("How did it feel overall?", text: $viewModel.notes, axis: .vertical)
-                        .lineLimit(2...4)
-                        .font(AppTypography.body(14))
-                        .foregroundStyle(.white)
-                        .padding(10)
-                        .background(Color.white.opacity(0.07))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                )
-            }
-
             if let error = viewModel.errorMessage {
                 Text(error)
                     .font(AppTypography.caption(13))
@@ -122,7 +111,6 @@ struct CheckInSheetView: View {
                     .multilineTextAlignment(.center)
             }
 
-            
             Button {
                 viewModel.submit()
             } label: {
@@ -254,13 +242,30 @@ struct CheckInSheetView: View {
         selection: Binding<T>,
         cases: [T]
     ) -> some View {
-        Picker("", selection: selection) {
+        Menu {
             ForEach(cases) { item in
-                Text(item.displayName).tag(item)
+                Button {
+                    selection.wrappedValue = item
+                } label: {
+                    HStack {
+                        Text(item.displayName)
+                        if selection.wrappedValue == item {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
             }
+        } label: {
+            HStack(spacing: 6) {
+                Text(selection.wrappedValue.displayName)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .font(AppTypography.body(15))
+            .foregroundStyle(Color.vibrantGreen)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .pickerStyle(.menu)
-        .tint(AppPalette.accent)
+        .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -268,10 +273,14 @@ struct CheckInSheetView: View {
         Button(action: action) {
             Text(label)
                 .font(AppTypography.caption(13))
-                .foregroundStyle(selected ? .black : .white)
+                .foregroundStyle(Color.vibrantGreen)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(selected ? AppPalette.accent : Color.white.opacity(0.1))
+                .background(selected ? Color.vibrantGreen.opacity(0.2) : Color.white.opacity(0.1))
+                .overlay(
+                    Capsule()
+                        .stroke(selected ? Color.vibrantGreen.opacity(0.95) : Color.white.opacity(0.2), lineWidth: 1)
+                )
                 .clipShape(Capsule())
         }
     }
@@ -308,7 +317,7 @@ struct CheckInSheetView: View {
 
     private func zoneColor(_ zone: SuitabilityZone) -> Color {
         switch zone {
-        case .green:  return .green
+        case .green:  return .vibrantGreen
         case .yellow: return .yellow
         case .red:    return .red
         }

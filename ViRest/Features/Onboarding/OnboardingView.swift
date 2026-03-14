@@ -91,6 +91,8 @@ struct OnboardingView: View {
     @State private var scrollProxy: ScrollViewProxy?
     private let onExitFromFirstQuestion: () -> Void
     private let topAnchorID = "onboarding_top_anchor"
+    private let headerHorizontalPadding: CGFloat = 20
+    private let headerButtonSize: CGFloat = 44
 
     init(
         viewModel: OnboardingViewModel,
@@ -203,25 +205,27 @@ struct OnboardingView: View {
 
     private var headerView: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ZStack {
+            HStack(spacing: 0) {
+                Button(action: handleBack) {
+                    Image(systemName: "chevron.left")
+                }
+                .buttonStyle(CircularNavigationBackButtonStyle(size: headerButtonSize))
+                .frame(width: headerButtonSize, height: headerButtonSize)
+
+                Spacer()
+
                 Text("Virest")
-                    .font(.headline.bold())
+                    .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(Color.slateGray)
 
-                HStack {
-                    Button(action: handleBack) {
-                        Image(systemName: "arrow.left")
-                            .font(.system(size: 24).bold())
-                            .foregroundStyle(.white)
-                    }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
+                Spacer()
 
-                    Spacer()
-                }
+                Color.clear
+                    .frame(width: headerButtonSize, height: headerButtonSize)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 24)
+            .padding(.horizontal, headerHorizontalPadding)
+            .padding(.top, 8)
+            .padding(.bottom, 14)
 
             if phase == .questions, currentStep != .baseline {
                 VStack(alignment: .leading, spacing: 8) {
@@ -233,7 +237,7 @@ struct OnboardingView: View {
                         .font(.title2)
                         .foregroundStyle(Color.white)
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, headerHorizontalPadding)
                 .padding(.bottom, 24)
             }
         }
