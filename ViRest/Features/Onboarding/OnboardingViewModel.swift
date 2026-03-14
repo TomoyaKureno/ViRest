@@ -3,10 +3,6 @@ import Combine
 
 @MainActor
 final class OnboardingViewModel: ObservableObject {
-    
-    private let firestoreUserRepository: FirestoreUserRepository
-    private let authService: AuthProviding
-    
     @Published var fullName: String = ""
     @Published var ageText: String = ""
     @Published var gender: Gender?
@@ -34,7 +30,6 @@ final class OnboardingViewModel: ObservableObject {
     @Published var weeklyGoal: WeeklyGoalFrequency = .threeTimesPerWeek
 
     @Published var acceptedDisclaimer = false
-
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var importedHealthSnapshot: HealthSnapshot?
@@ -44,6 +39,8 @@ final class OnboardingViewModel: ObservableObject {
     private let healthService: HealthDataProviding
     private let recommendationEngine: RecommendationProviding
     private let notificationService: NotificationScheduling
+    private let firestoreUserRepository: FirestoreUserRepository
+    private let authService: AuthProviding
     private let onCompleted: () -> Void
 
     init(
@@ -70,37 +67,26 @@ final class OnboardingViewModel: ObservableObject {
         Task {
             isLoading = true
             errorMessage = nil
-
-            let granted = await healthService.requestAuthorization()
-            guard granted else {
-                await MainActor.run {
-                    self.errorMessage = "Health access denied. We'll continue with manual input."
-                    self.isLoading = false
-                }
-                return
-            }
-
+            _ = await healthService.requestAuthorization()
+            // Don't bail on false — HealthKit always returns notDetermined for reads.
+            // fetchLatestSnapshot will return nil for each denied type individually.
             let snapshot = await healthService.fetchLatestSnapshot(profile: nil)
-            await MainActor.run {
-                self.importedHealthSnapshot = snapshot
-                if let height = snapshot.heightCm {
-                    self.heightCmText = String(format: "%.0f", height)
-                }
-                if let weight = snapshot.weightKg {
-                    self.weightKgText = String(format: "%.1f", weight)
-                }
-                if let rhr = snapshot.restingHeartRate {
-                    self.restingHeartRateRange = Self.range(from: rhr)
-                }
-                self.isLoading = false
+            self.importedHealthSnapshot = snapshot
+            if let height = snapshot.heightCm {
+                self.heightCmText = String(format: "%.0f", height)
             }
+            if let weight = snapshot.weightKg {
+                self.weightKgText = String(format: "%.1f", weight)
+            }
+            if let rhr = snapshot.restingHeartRate {
+                self.restingHeartRateRange = Self.range(from: rhr)
+            }
+            self.isLoading = false
         }
     }
 
     func submit() {
-        Task {
-            await submitInternal()
-        }
+        Task { await submitInternal() }
     }
 
     private func submitInternal() async {
@@ -108,37 +94,44 @@ final class OnboardingViewModel: ObservableObject {
         errorMessage = nil
 
         guard acceptedDisclaimer else {
-            errorMessage = "Please accept the medical disclaimer."
-            isLoading = false; return
+            errorMessage = "Please accept the medical disclaimer before generating your plan."
+            isLoading = false
+            return
         }
         guard !fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             errorMessage = "Please fill in your name."
-            isLoading = false; return
+            isLoading = false
+            return
         }
 
         normalizeSelections()
         let profile = buildProfile()
 
         do {
-            // 1. Save profile locally (existing logic)
+            // 1. Save local profile
             try userProfileRepository.saveProfile(profile)
             try planRepository.saveGoal(weeklyGoal)
 
-            // 2. Generate top-3 sport plan using sports.json
+            // 2. Build sport plan from sports.json
             let sportPlan = buildSportPlan(profile: profile)
+            print("🏃 Built sport plan with \(sportPlan.sports.count) sports: \(sportPlan.sports.map { $0.displayName })")
 
             // 3. Save to Firestore
             guard case .signedIn(let user) = authService.authState else {
-                throw AppError.auth("Not authenticated")
+                errorMessage = "Not authenticated."
+                isLoading = false
+                return
             }
-            try await firestoreUserRepository.saveProfile(userId: user.id, profile: profile)
             try await firestoreUserRepository.saveSportPlan(userId: user.id, plan: sportPlan)
 
-            // 4. Keep existing local plan for offline support
+            // 4. Also save local SwiftData plan for offline fallback
             let snapshot = await healthService.fetchLatestSnapshot(profile: profile)
+            importedHealthSnapshot = snapshot
             let request = RecommendationRequest(
-                userProfile: profile, healthSnapshot: snapshot,
-                goalFrequency: weeklyGoal, weekStartDate: Date()
+                userProfile: profile,
+                healthSnapshot: snapshot,
+                goalFrequency: weeklyGoal,
+                weekStartDate: Date()
             )
             let result = recommendationEngine.recommend(request: request)
             try planRepository.saveCurrentPlan(result.weeklyPlan)
@@ -154,29 +147,27 @@ final class OnboardingViewModel: ObservableObject {
         }
     }
 
+    // ── Build plan from sports.json ──────────────────────────────────────────
     private func buildSportPlan(profile: UserProfileInput) -> FirestoreSportPlan {
         let loader = SportsCatalogLoader.shared
         let rhrBand = profile.restingHeartRateRange.sportsJsonBand
-        let bmiCategory = BMICalculator.category(
-            heightCm: profile.heightCm, weightKg: profile.weightKg
-        )
-        let userEnv = profile.environment.rawValue.capitalized
+        let bmiCategory = BMICalculator.category(heightCm: profile.heightCm, weightKg: profile.weightKg)
+        let userEnv = profile.environment
         let userContraindications = profile.healthConditions.map { $0.displayName }
 
-        print("🏃 Building plan — RHR band: \(rhrBand), BMI: \(bmiCategory), env: \(userEnv)")
+        print("🏃 Building plan — RHR band: \(rhrBand), BMI: \(bmiCategory), env: \(userEnv.rawValue)")
         print("🏃 Total exercises available: \(loader.exercises.count)")
 
         var scored: [(name: String, prescription: SportPrescription, score: Double)] = []
 
         for exercise in loader.exercises {
-            // Try exact RHR band first, then fall back to any available band
             guard let presc = loader.prescription(
                 for: exercise.name,
                 rhrBand: rhrBand,
                 bmiCategory: bmiCategory
             ) else { continue }
 
-            // Skip if any contraindication matches user's conditions
+            // Skip contraindicated exercises
             let isContraindicated = presc.contraindications.contains { contra in
                 userContraindications.contains {
                     $0.localizedCaseInsensitiveContains(contra) ||
@@ -188,26 +179,46 @@ final class OnboardingViewModel: ObservableObject {
             var score = 50.0
 
             // Environment match bonus
-            let envMatch = exercise.environment == "Both"
-                || exercise.environment == userEnv
-                || profile.environment == .both
+            let envMatch: Bool
+            switch userEnv {
+            case .both:
+                envMatch = true
+            case .indoor:
+                envMatch = exercise.environment == "Indoor" || exercise.environment == "Both"
+            case .outdoor:
+                envMatch = exercise.environment == "Outdoor" || exercise.environment == "Both"
+            }
             if envMatch { score += 20 }
 
-            // Enjoyable activity match bonus
+            // Enjoyable activity bonus — match by name substring
             let activityMatch = profile.enjoyableActivities.contains { act in
                 exercise.name.localizedCaseInsensitiveContains(act.displayName) ||
                 act.displayName.localizedCaseInsensitiveContains(exercise.name)
             }
             if activityMatch { score += 30 }
 
+            // Intensity preference: reward exercises with more/fewer sessions
+            switch profile.intensityPreference {
+            case .veryLight, .light:
+                // Prefer exercises with lower frequency
+                if presc.maxDaysPerWeek <= 3 { score += 10 }
+            case .moderate:
+                if presc.minDaysPerWeek >= 3 && presc.maxDaysPerWeek <= 5 { score += 10 }
+            case .challenging:
+                if presc.maxDaysPerWeek >= 4 { score += 10 }
+            }
+
+            // Add small random tie-breaker so identical scores don't always produce same order
+            score += Double.random(in: 0...5)
+
             scored.append((name: exercise.name, prescription: presc, score: score))
         }
 
         print("🏃 Scored \(scored.count) eligible exercises")
 
-        // If still empty (very restrictive profile), grab ANY 3 exercises with any band/BMI
+        // Fallback if nothing matched
         if scored.isEmpty {
-            print("⚠️ No exercises matched — using fallback scoring")
+            print("⚠️ No exercises matched — using broad fallback")
             for exercise in loader.exercises {
                 guard let presc = loader.prescription(
                     for: exercise.name,
@@ -218,15 +229,13 @@ final class OnboardingViewModel: ObservableObject {
                     rhrBand: exercise.rhrBands.first?.rhrBand ?? rhrBand,
                     bmiCategory: bmiCategory
                 ) else { continue }
-
-                scored.append((name: exercise.name, prescription: presc, score: 50.0))
+                scored.append((name: exercise.name, prescription: presc, score: Double.random(in: 40...60)))
                 if scored.count >= 3 { break }
             }
         }
 
-        // Take top 3
         let top3 = scored.sorted { $0.score > $1.score }.prefix(3)
-        print("🏃 Top 3: \(top3.map { $0.name })")
+        print("🏃 Top 3: \(top3.map { "\($0.name) (score: \(Int($0.score)))" })")
 
         let weekReset = Date().startOfWeek()
         let sports = top3.map { item in
@@ -243,7 +252,7 @@ final class OnboardingViewModel: ObservableObject {
         return FirestoreSportPlan(generatedAt: Date(), sports: Array(sports))
     }
 
-
+    // ── Helpers ──────────────────────────────────────────────────────────────
     private func buildProfile() -> UserProfileInput {
         UserProfileInput(
             fullName: fullName,
@@ -270,57 +279,33 @@ final class OnboardingViewModel: ObservableObject {
     }
 
     private func normalizeSelections() {
-        if healthConditions.contains(.none), healthConditions.count > 1 {
-            healthConditions.remove(.none)
-        }
-
-        if healthConditions.isEmpty {
-            healthConditions.insert(.none)
-        }
-
-        if equipments.contains(.none), equipments.count > 1 {
-            equipments.remove(.none)
-        }
-
-        if equipments.isEmpty {
-            equipments.insert(.none)
-        }
-
-        if enjoyableActivities.isEmpty {
-            enjoyableActivities.insert(.walking)
-        }
+        if healthConditions.contains(.none), healthConditions.count > 1 { healthConditions.remove(.none) }
+        if healthConditions.isEmpty { healthConditions.insert(.none) }
+        if equipments.contains(.none), equipments.count > 1 { equipments.remove(.none) }
+        if equipments.isEmpty { equipments.insert(.none) }
+        if enjoyableActivities.isEmpty { enjoyableActivities.insert(.walking) }
     }
 
     private func normalizedHealthConditions() -> [HealthCondition] {
         var list = Array(healthConditions)
-        if list.contains(.none), list.count > 1 {
-            list.removeAll { $0 == .none }
-        }
+        if list.contains(.none), list.count > 1 { list.removeAll { $0 == .none } }
         return list
     }
 
     private func normalizedEquipments() -> [Equipment] {
         var list = Array(equipments)
-        if list.contains(.none), list.count > 1 {
-            list.removeAll { $0 == .none }
-        }
+        if list.contains(.none), list.count > 1 { list.removeAll { $0 == .none } }
         return list
     }
 
-    private static func range(from restingHeartRate: Double) -> RestingHeartRateRange {
-        switch restingHeartRate {
-        case ..<50:
-            return .below50
-        case 50..<60:
-            return .from50To60
-        case 60..<70:
-            return .from60To70
-        case 70..<81:
-            return .from71To80
-        case 81..<91:
-            return .from81To90
-        default:
-            return .above90
+    private static func range(from rhr: Double) -> RestingHeartRateRange {
+        switch rhr {
+        case ..<50:   return .below50
+        case 50..<60: return .from50To60
+        case 60..<70: return .from60To70
+        case 70..<81: return .from71To80
+        case 81..<91: return .from81To90
+        default:      return .above90
         }
     }
 }

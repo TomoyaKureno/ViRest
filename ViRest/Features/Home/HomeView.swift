@@ -39,7 +39,29 @@ struct HomeView: View {
             }
             .navigationTitle("Weekly Plan")
             .toolbarTitleDisplayMode(.inline)
-            .task { viewModel.load() }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    HStack(spacing: 8) {
+                        // Existing debug button
+                        Button("⏩ Next Week") {
+                            Task { await viewModel.debugSimulateNextWeek() }
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.yellow)
+
+                        // New notification test button
+                        Button("🔔 Test") {
+                            Task { await viewModel.debugFireTestNotification() }
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    }
+                }
+            }
+            .task {
+                viewModel.load()
+                viewModel.debugPrintPendingNotifications() // DEBUG
+            }
 
             // ── Step 1: Confirmation alert
             .confirmationDialog(
