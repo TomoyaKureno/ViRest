@@ -4,7 +4,12 @@ import SwiftUI
 
 @MainActor
 final class AuthCoordinator: ObservableObject {
-    @Published var path = NavigationPath()
+    enum Destination: Hashable {
+        case onboardingRegister
+        case register
+    }
+
+    @Published var path: [Destination] = []
 }
 
 @MainActor
@@ -16,6 +21,7 @@ final class OnboardingCoordinator: ObservableObject {
 final class MainCoordinator: ObservableObject {
     enum Tab: Hashable {
         case home
+        case rewards
         case profile
     }
 

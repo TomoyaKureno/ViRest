@@ -45,7 +45,7 @@ struct ProfileView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                AppGradientBackground()
+                Color.richBlack.ignoresSafeArea()
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 14) {
@@ -235,7 +235,9 @@ private struct ProfilePreviewHost: View {
         self.viewModel = ProfileViewModel(
             userProfileRepository: seededContainer.userProfileRepository,
             planRepository: seededContainer.planRepository,
-            badgeRepository: seededContainer.badgeStateRepository
+            badgeRepository: seededContainer.badgeStateRepository,
+            firestoreUserRepository: seededContainer.firestoreUserRepository,
+            authService: seededContainer.authService
         )
     }
 

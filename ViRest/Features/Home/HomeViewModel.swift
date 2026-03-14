@@ -1,11 +1,14 @@
 import Foundation
 import Combine
-import FirebaseFirestore
 
 @MainActor
 final class HomeViewModel: ObservableObject {
     @Published var firestoreUser: FirestoreUser?
     @Published var currentTitle: String = ""
+    @Published var profileName: String = "ViRest User"
+    @Published var currentRestingHRText: String = "-"
+    @Published var currentWeightText: String = "-"
+    @Published var currentHeightText: String = "-"
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var checkInSuccess: String?
@@ -15,7 +18,9 @@ final class HomeViewModel: ObservableObject {
     @Published var showCheckInSheet = false
 
     private let firestoreUserRepository: FirestoreUserRepository
+    private let userProfileRepository: UserProfileRepository
     private let authService: AuthProviding
+    private let healthService: HealthDataProviding
     private let notificationService: NotificationScheduling
     private let gamificationService: GamificationProviding
     private let badgeRepository: BadgeStateRepository
@@ -23,14 +28,18 @@ final class HomeViewModel: ObservableObject {
 
     init(
         firestoreUserRepository: FirestoreUserRepository,
+        userProfileRepository: UserProfileRepository,
         authService: AuthProviding,
+        healthService: HealthDataProviding,
         notificationService: NotificationScheduling,
         gamificationService: GamificationProviding,
         badgeRepository: BadgeStateRepository,
         planAdjustmentService: PlanAdjusting
     ) {
         self.firestoreUserRepository = firestoreUserRepository
+        self.userProfileRepository = userProfileRepository
         self.authService = authService
+        self.healthService = healthService
         self.notificationService = notificationService
         self.gamificationService = gamificationService
         self.badgeRepository = badgeRepository
@@ -38,7 +47,7 @@ final class HomeViewModel: ObservableObject {
     }
 
     var sports: [FirestoreSportEntry] {
-        firestoreUser?.sportPlan?.sports ?? []
+        firestoreUser?.sportPlan?.resolvedSports(at: Date()) ?? []
     }
 
     func load() {
@@ -79,16 +88,75 @@ final class HomeViewModel: ObservableObject {
             isLoading = false; return
         }
         do {
-            firestoreUser = try await firestoreUserRepository.loadUser(userId: user.id)
-            if let titleId = firestoreUser?.currentTitleId, !titleId.isEmpty {
-                currentTitle = await FirestoreDB.shared.fetchTitleName(titleId: titleId)
+            var loadedBadgeState = try badgeRepository.loadState()
+            let didChangeBadgeState = loadedBadgeState.normalizeRandomCriteriaIfNeeded()
+            if didChangeBadgeState {
+                try badgeRepository.saveState(loadedBadgeState)
             }
+
+            firestoreUser = try await firestoreUserRepository.loadUser(userId: user.id)
+            let localProfile = try userProfileRepository.loadProfile()
+            currentTitle = loadedBadgeState.level.title
+            updateProfileName(localProfile: localProfile)
+            await updateVitals(localProfile: localProfile)
             try await resetWeeklyCountersIfNeeded(userId: user.id)
             isLoading = false
         } catch {
             errorMessage = error.localizedDescription
             isLoading = false
         }
+    }
+
+    private func updateProfileName(localProfile: UserProfileInput?) {
+        let localName = localProfile?.fullName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let localName, !localName.isEmpty {
+            profileName = localName
+            return
+        }
+
+        let remoteName = firestoreUser?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let remoteName, !remoteName.isEmpty {
+            profileName = remoteName
+            return
+        }
+
+        profileName = "ViRest User"
+    }
+
+    private func updateVitals(localProfile: UserProfileInput?) async {
+        let snapshot = await healthService.fetchLatestSnapshot(profile: localProfile)
+
+        let resolvedHeight = snapshot.heightCm ?? localProfile?.heightCm
+        let resolvedWeight = snapshot.weightKg ?? localProfile?.weightKg
+        let resolvedRHR = snapshot.restingHeartRate.map { Int($0.rounded()) }
+            ?? localProfile?.questionnaireCurrentRHRBand?.representativeBPM
+            ?? firestoreUser?.restingHeartRate
+
+        if let resolvedRHR {
+            currentRestingHRText = "\(resolvedRHR) bpm"
+        } else {
+            currentRestingHRText = "-"
+        }
+
+        if let resolvedWeight {
+            currentWeightText = formatWeight(resolvedWeight)
+        } else {
+            currentWeightText = "-"
+        }
+
+        if let resolvedHeight {
+            currentHeightText = String(format: "%.0f cm", resolvedHeight)
+        } else {
+            currentHeightText = "-"
+        }
+    }
+
+    private func formatWeight(_ value: Double) -> String {
+        let rounded = (value * 10).rounded() / 10
+        if abs(rounded.rounded() - rounded) < 0.01 {
+            return String(format: "%.0f kg", rounded)
+        }
+        return String(format: "%.1f kg", rounded)
     }
 
     private func resetWeeklyCountersIfNeeded(userId: String) async throws {

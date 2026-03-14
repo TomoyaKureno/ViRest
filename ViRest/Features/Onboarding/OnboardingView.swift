@@ -1,10 +1,13 @@
 import SwiftUI
 
 struct OnboardingView: View {
+    private enum OnboardingPhase {
+        case questions
+        case summary
+    }
+
     private enum OnboardingStep: Int, CaseIterable, Identifiable {
-        case currentRHR
-        case weight
-        case height
+        case baseline
         case environment
         case preferredTime
         case duration
@@ -19,32 +22,28 @@ struct OnboardingView: View {
 
         var title: String {
             switch self {
-            case .currentRHR:
-                return "1. What is your current resting heart rate (RHR)?"
-            case .weight:
-                return "2. What is your current weight?"
-            case .height:
-                return "3. What is your current height?"
+            case .baseline:
+                return "Sync with Apple Health"
             case .environment:
-                return "4. Where would you prefer to exercise?"
+                return "Where would you prefer to exercise?"
             case .preferredTime:
-                return "5. When do you usually prefer to exercise?"
+                return "When do you usually prefer to exercise?"
             case .duration:
-                return "6. How much time can you realistically spend exercising in one session?"
+                return "How much time can you realistically spend exercising in one session?"
             case .frequency:
-                return "7. How many days per week can you realistically exercise?"
+                return "How many days per week can you realistically exercise?"
             case .equipment:
-                return "8. What exercise access or equipment do you currently have?"
+                return "What exercise access or equipment do you currently have?"
             case .contraindications:
-                return "9. Do you have any of these conditions that should rule out certain exercises?"
+                return "Do you have any of these conditions that should rule out certain exercises?"
             case .targetRHR:
-                return "10. What resting heart rate would you like to achieve?"
+                return "What resting heart rate would you like to achieve?"
             }
         }
 
         var sectionTitle: String {
             switch self {
-            case .currentRHR, .weight, .height:
+            case .baseline:
                 return "Current Health Baseline"
             case .environment, .preferredTime:
                 return "Exercise Preference"
@@ -81,119 +80,168 @@ struct OnboardingView: View {
     }
 
     @ObservedObject private var viewModel: OnboardingViewModel
-    @State private var currentStep: OnboardingStep = .currentRHR
+    @State private var phase: OnboardingPhase = .questions
+    @State private var currentStep: OnboardingStep = .baseline
     @State private var inlineInputError: String?
+    @State private var baselineWeightError: String?
+    @State private var baselineHeightError: String?
     @State private var lastValidWeightInput: String = ""
     @State private var lastValidHeightInput: String = ""
-    @State private var hasPresentedHealthKitPrompt = false
-    @State private var showHealthKitPrompt = false
+    @State private var hideHealthSyncHero = false
+    @State private var scrollProxy: ScrollViewProxy?
     private let onExitFromFirstQuestion: () -> Void
+    private let topAnchorID = "onboarding_top_anchor"
 
     init(
         viewModel: OnboardingViewModel,
-        onExitFromFirstQuestion: @escaping () -> Void = { }
+        onExitFromFirstQuestion: @escaping () -> Void = {}
     ) {
         self.viewModel = viewModel
         self.onExitFromFirstQuestion = onExitFromFirstQuestion
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                ZStack {
-                    Text("Virest")
-                        .font(.headline.bold())
-                        .foregroundStyle(Color.slateGray)
-                    HStack {
-                        Button(action: handleBack) {
-                            Image(systemName: "arrow.left")
-                                .font(.system(size: 24).bold())
-                                .foregroundStyle(.white)
+        ZStack {
+            Color.richBlack
+                .ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 0) {
+                headerView
+
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        Color.clear
+                            .frame(height: 0)
+                            .id(topAnchorID)
+
+                        Group {
+                            switch phase {
+                            case .questions:
+                                stepContent
+                            case .summary:
+                                programSummaryContent
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .contentShape(Rectangle())
-                        Spacer()
+                        .padding(.horizontal, 20)
+                    }
+                    .scrollIndicators(.hidden)
+                    .scrollDismissesKeyboard(.interactively)
+                    .onAppear {
+                        scrollProxy = proxy
+                        scrollToTop()
                     }
                 }
             }
-            .padding(.horizontal)
-            .padding(.bottom, 24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .toolbar(.hidden, for: .navigationBar)
+            .onChange(of: currentStep) { _, _ in
+                inlineInputError = nil
+                baselineWeightError = nil
+                baselineHeightError = nil
+            }
+            .onChange(of: currentStep) { _, _ in
+                scrollToTop()
+            }
+            .onChange(of: viewModel.recommendationSummary) { _, summary in
+                guard summary != nil else { return }
+                phase = .summary
+                scrollToTop()
+            }
+            .onChange(of: viewModel.weightKgText) { _, newValue in
+                applyRegexGuard(for: .weight, newValue: newValue)
+                baselineWeightError = nil
+            }
+            .onChange(of: viewModel.heightCmText) { _, newValue in
+                applyRegexGuard(for: .height, newValue: newValue)
+                baselineHeightError = nil
+            }
+            .onAppear {
+                initializeOnboardingIfNeeded()
+            }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text(currentStep.sectionTitle)
-                    .font(.largeTitle.bold())
-                    .foregroundStyle(Color.vibrantGreen)
+            VStack {
+                Spacer()
 
-                Text(currentStep.title)
-                    .font(.title2)
-                    .foregroundStyle(Color.white)
+                switch phase {
+                case .questions:
+                    Button(action: handleNext) {
+                        let buttonTitle = viewModel.isLoading ? "Loading..." : "Next"
 
-                if let errorMessage = displayedErrorMessage {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red.opacity(0.9))
-                        .lineLimit(2)
+                        Text(buttonTitle)
+                            .font(.title3.bold())
+                            .foregroundStyle(.vibrantGreen)
+                            .padding(.vertical, 8)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(viewModel.isLoading)
+                    .buttonStyle(.glass)
+                case .summary:
+                    Button {
+                        viewModel.continueAfterRecommendation()
+                    } label: {
+                        Text("Get Started")
+                            .font(.title3.bold())
+                            .foregroundStyle(.vibrantGreen)
+                            .padding(.vertical, 8)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(viewModel.isLoading)
+                    .buttonStyle(.glass)
                 }
-            }.padding(.horizontal)
-
-            ScrollView {
-                stepContent
-                    .padding(.horizontal)
             }
-            .padding(.vertical, 24)
-            .scrollIndicators(.hidden)
-            .scrollDismissesKeyboard(.interactively)
-
-            HStack {
-                Button(action: handleNext) {
-                    let buttonTitle = viewModel.isLoading ? "Loading..." : "Next"
-                    Text(buttonTitle)
-                        .font(.headline)
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 12)
-                }
-                .disabled(viewModel.isLoading)
-                .buttonStyle(.glass)
-            }
-            .padding(.horizontal)
-            .frame(maxWidth: .infinity)
-        }
-        .padding(.vertical)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.richBlack)
-        .toolbar(.hidden, for: .navigationBar)
-        .onChange(of: currentStep) { _, _ in
-            inlineInputError = nil
-            maybePresentHealthKitPromptIfNeeded()
-        }
-        .onChange(of: viewModel.weightKgText) { _, newValue in
-            applyRegexGuard(for: .weight, newValue: newValue)
-        }
-        .onChange(of: viewModel.heightCmText) { _, newValue in
-            applyRegexGuard(for: .height, newValue: newValue)
-        }
-        .onAppear {
-            lastValidWeightInput = normalizeInput(viewModel.weightKgText, kind: .weight)
-            lastValidHeightInput = normalizeInput(viewModel.heightCmText, kind: .height)
-            maybePresentHealthKitPromptIfNeeded()
-        }
-        .alert("Apple Health Access", isPresented: $showHealthKitPrompt) {
-            Button("Nanti", role: .cancel) { }
-            Button("Izinkan") {
-                viewModel.importHealthData()
-            }
-        } message: {
-            Text("Izinkan akses HealthKit agar RHR, weight, dan height bisa diisi otomatis.")
+            .padding(.horizontal, 20)
         }
     }
 
     private var displayedErrorMessage: String? {
-        inlineInputError ?? (currentStep.isLast ? viewModel.errorMessage : nil)
+        guard phase == .questions else { return nil }
+        if currentStep == .baseline {
+            return viewModel.errorMessage
+        }
+        return inlineInputError ?? (currentStep.isLast ? viewModel.errorMessage : nil)
+    }
+
+    private var headerView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack {
+                Text("Virest")
+                    .font(.headline.bold())
+                    .foregroundStyle(Color.slateGray)
+
+                HStack {
+                    Button(action: handleBack) {
+                        Image(systemName: "arrow.left")
+                            .font(.system(size: 24).bold())
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+
+                    Spacer()
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 24)
+
+            if phase == .questions, currentStep != .baseline {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(currentStep.sectionTitle)
+                        .font(.largeTitle.bold())
+                        .foregroundStyle(Color.vibrantGreen)
+
+                    Text(currentStep.title)
+                        .font(.title2)
+                        .foregroundStyle(Color.white)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
+            }
+        }
     }
 
     private var stepOptions: [StepOption] {
         switch currentStep {
-        case .currentRHR:
+        case .baseline:
             return [
                 StepOption(
                     id: CurrentRHRBandQuestion.upTo60.id,
@@ -220,10 +268,6 @@ struct OnboardingView: View {
                     action: { viewModel.questionnaireCurrentRHRBand = .above90 }
                 )
             ]
-        case .weight:
-            return []
-        case .height:
-            return []
         case .environment:
             return SportEnvironment.allCases.map { option in
                 StepOption(
@@ -323,7 +367,12 @@ struct OnboardingView: View {
     private func handleBack() {
         inlineInputError = nil
 
-        if currentStep == .currentRHR {
+        if phase == .summary {
+            phase = .questions
+            return
+        }
+
+        if currentStep == .baseline {
             onExitFromFirstQuestion()
             return
         }
@@ -335,10 +384,11 @@ struct OnboardingView: View {
     private func handleNext() {
         inlineInputError = nil
 
+        guard phase == .questions else { return }
         guard validateCurrentInputStep() else { return }
 
         if currentStep.isLast {
-            viewModel.submitAndCompleteIfValid()
+            viewModel.submit()
             return
         }
 
@@ -346,49 +396,39 @@ struct OnboardingView: View {
         currentStep = nextStep
     }
 
-    private func maybePresentHealthKitPromptIfNeeded() {
-        guard currentStep == .currentRHR else { return }
-        guard !hasPresentedHealthKitPrompt else { return }
-        hasPresentedHealthKitPrompt = true
-
-        Task { @MainActor in
-            let shouldPresent = await viewModel.shouldPresentHealthKitPrompt()
-            guard shouldPresent else { return }
-            guard currentStep == .currentRHR else { return }
-            showHealthKitPrompt = true
-        }
-    }
-
-    @ViewBuilder
     private var stepContent: some View {
         VStack(spacing: 16) {
             switch currentStep {
-            case .weight:
-                numericInputCard(
-                    placeholder: "Number input in kg",
-                    unit: "kg",
-                    text: $viewModel.weightKgText
-                )
-            case .height:
-                numericInputCard(
-                    placeholder: "Number input in cm",
-                    unit: "cm",
-                    text: $viewModel.heightCmText
-                )
+            case .baseline:
+                baselineStepContent
             default:
                 VStack(spacing: 16) {
                     ForEach(stepOptions) { option in
                         optionRow(option)
                     }
                 }
+                .padding(.bottom, 80)
             }
         }
+    }
+
+    private var isRHRFieldLocked: Bool {
+        viewModel.isHealthKitSynchronized && viewModel.importedHealthSnapshot?.restingHeartRate != nil
+    }
+
+    private var isWeightFieldLocked: Bool {
+        viewModel.isHealthKitSynchronized && viewModel.importedHealthSnapshot?.weightKg != nil
+    }
+
+    private var isHeightFieldLocked: Bool {
+        viewModel.isHealthKitSynchronized && viewModel.importedHealthSnapshot?.heightCm != nil
     }
 
     private func numericInputCard(
         placeholder: String,
         unit: String,
-        text: Binding<String>
+        text: Binding<String>,
+        isEnabled: Bool = true
     ) -> some View {
         VStack(spacing: 16) {
             HStack {
@@ -398,8 +438,9 @@ struct OnboardingView: View {
                     .autocorrectionDisabled()
                     .font(.headline)
                     .foregroundStyle(Color.white)
-                    .padding(.vertical, 16)
+                    .padding(.vertical, 20)
                     .padding(.horizontal, 24)
+                    .disabled(!isEnabled)
 
                 Spacer(minLength: 8)
 
@@ -409,10 +450,344 @@ struct OnboardingView: View {
                     .padding(.trailing, 24)
             }
             .glassEffect(.clear)
+            .opacity(isEnabled ? 1 : 0.65)
         }
     }
 
-    private func optionRow(_ option: StepOption) -> some View {
+    private var baselineStepContent: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            if !hideHealthSyncHero {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text("Sync with Apple Health")
+                        .font(.system(size: 48, weight: .bold, design: .default))
+                        .foregroundStyle(.white)
+                        .italic()
+                        .lineLimit(2)
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        syncBenefitRow(icon: "person.circle.fill", text: "Give sport recommendations based on your data")
+                        syncBenefitRow(icon: "chart.line.uptrend.xyaxis", text: "Track your fitness progress")
+                        syncBenefitRow(icon: "lock.fill", text: "Secure and private")
+                    }
+
+                    Button {
+                        viewModel.importHealthData()
+                    } label: {
+                        Text(healthSyncButtonTitle)
+                            .font(.title3.bold())
+                            .italic()
+                            .foregroundStyle(Color.vibrantGreen)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.glass)
+                    .disabled(viewModel.isLoading)
+                }
+            }
+
+            HStack(spacing: 16) {
+                Rectangle()
+                    .fill(Color.white.opacity(0.2))
+                    .frame(height: 2)
+                Text("OR")
+                    .font(.title2.bold())
+                    .foregroundStyle(.white.opacity(0.9))
+                Rectangle()
+                    .fill(Color.white.opacity(0.2))
+                    .frame(height: 2)
+            }
+
+            Text("Enter manually")
+                .font(.system(size: 48, weight: .bold, design: .default))
+                .foregroundStyle(.white)
+                .italic()
+                .lineLimit(2)
+
+            VStack(alignment: .leading, spacing: 24) {
+                Text("What is your current resting heart rate (RHR)?")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+
+                VStack(spacing: 12) {
+                    ForEach(stepOptions) { option in
+                        optionRow(option, isEnabled: !isRHRFieldLocked)
+                    }
+                }
+
+                if isRHRFieldLocked {
+                    Text("Mapped from Apple Health")
+                        .font(.footnote)
+                        .foregroundStyle(Color.slateGray)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("What is your current weight?")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+
+                    if let errorMessage = baselineWeightError {
+                        Text(errorMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.red.opacity(0.9))
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                numericInputCard(
+                    placeholder: "Number input in kg",
+                    unit: "kg",
+                    text: $viewModel.weightKgText,
+                    isEnabled: !isWeightFieldLocked
+                )
+
+                if isWeightFieldLocked {
+                    Text("Mapped from Apple Health")
+                        .font(.footnote)
+                        .foregroundStyle(Color.slateGray)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("What is your current height?")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+
+                    if let errorMessage = baselineHeightError {
+                        Text(errorMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.red.opacity(0.9))
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                numericInputCard(
+                    placeholder: "Number input in cm",
+                    unit: "cm",
+                    text: $viewModel.heightCmText,
+                    isEnabled: !isHeightFieldLocked
+                )
+
+                if isHeightFieldLocked {
+                    Text("Mapped from Apple Health")
+                        .font(.footnote)
+                        .foregroundStyle(Color.slateGray)
+                }
+            }
+            .padding(.bottom, 80)
+        }
+    }
+
+    @ViewBuilder
+    private var programSummaryContent: some View {
+        if let summary = viewModel.recommendationSummary {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Top Sport Matches")
+                    .font(.system(size: 32, weight: .bold, design: .default))
+                    .foregroundStyle(.vibrantGreen)
+                    .italic()
+
+                Text("Review your matched sports based on your input profile.")
+                    .font(.title3)
+                    .foregroundStyle(Color.slateGray)
+
+                VStack(spacing: 14) {
+                    ForEach(summary.sports) { sport in
+                        sportProgramCard(sport)
+                    }
+                }
+            }
+            .padding(.bottom, 110)
+        } else {
+            VStack(spacing: 12) {
+                ProgressView()
+                    .tint(.white)
+                Text("Generating your program...")
+                    .font(.headline)
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 48)
+        }
+    }
+
+    private func sportProgramCard(_ sport: OnboardingViewModel.RecommendationSummary.SportFactor) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 10) {
+                Text(sport.sportName)
+                    .font(.title2.bold())
+                    .foregroundStyle(.white)
+
+                Spacer()
+
+                Text("\(sport.compatibilityPercent)% Match")
+                    .font(.headline)
+                    .foregroundStyle(Color.vibrantGreen)
+            }
+
+            if sport.hasProgression {
+                Text("Progressive plan")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.vibrantGreen)
+
+                HStack(spacing: 10) {
+                    phaseInfoCard(
+                        title: "Week 1",
+                        durationMinutes: sport.weekOneSessionMinutes,
+                        frequencyPerWeek: sport.weekOneFrequency
+                    )
+                    phaseInfoCard(
+                        title: "Week 2+",
+                        durationMinutes: sport.weekTwoPlusSessionMinutes,
+                        frequencyPerWeek: sport.weekTwoPlusFrequency
+                    )
+                }
+            } else {
+                standardInfoCard(
+                    durationMinutes: sport.weekOneSessionMinutes,
+                    frequencyPerWeek: sport.weekOneFrequency
+                )
+            }
+
+            if !sport.cautions.isEmpty {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.headline)
+                        .foregroundStyle(Color.yellow.opacity(0.95))
+                    
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Cautions")
+                            .font(.headline)
+                            .foregroundStyle(Color.yellow.opacity(0.95))
+                        
+                        ForEach(Array(sport.cautions.prefix(3).enumerated()), id: \.offset) { _, caution in
+                            Text("• \(caution)")
+                                .font(.subheadline.bold())
+                                .foregroundStyle(Color.white.opacity(0.95))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.vertical, 10)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.yellow.opacity(0.16))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.yellow.opacity(0.55), lineWidth: 1)
+                )
+            }
+        }
+        .padding(.vertical, 16)
+        .padding(.horizontal, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.06))
+        )
+    }
+
+    private func phaseInfoCard(
+        title: String,
+        durationMinutes: Int,
+        frequencyPerWeek: Int
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+
+            HStack(spacing: 6) {
+                Image(systemName: "clock")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color.slateGray)
+                Text("\(durationMinutes) min")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.slateGray)
+            }
+
+            HStack(spacing: 6) {
+                Image(systemName: "calendar")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color.slateGray)
+                Text("\(frequencyPerWeek)x / week")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.slateGray)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 12)
+        .padding(.horizontal, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
+    }
+
+    private func standardInfoCard(
+        durationMinutes: Int,
+        frequencyPerWeek: Int
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Standard plan")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+
+            HStack(spacing: 16) {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color.slateGray)
+                    Text("\(durationMinutes) min / session")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.slateGray)
+                }
+
+                HStack(spacing: 6) {
+                    Image(systemName: "calendar")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color.slateGray)
+                    Text("\(frequencyPerWeek)x / week")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.slateGray)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 12)
+        .padding(.horizontal, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    private func syncBenefitRow(icon: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: icon)
+                .font(.title2)
+                .foregroundStyle(Color.vibrantGreen)
+                .frame(width: 28)
+
+            Text(text)
+                .font(.title3)
+                .foregroundStyle(.white.opacity(0.95))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func optionRow(_ option: StepOption, isEnabled: Bool = true) -> some View {
         Button(action: option.action) {
             HStack(alignment: .center) {
                 Text(option.title)
@@ -437,12 +812,51 @@ struct OnboardingView: View {
                 )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 16)
+            .padding(.vertical, 20)
             .padding(.horizontal, 24)
             .contentShape(Rectangle())
         }
         .buttonStyle(StaticPressButtonStyle())
         .glassEffect(option.isSelected ? .clear.interactive() : .identity)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.65)
+    }
+
+    private var healthSyncButtonTitle: String {
+        if viewModel.isLoading {
+            return "Syncing..."
+        }
+
+        if viewModel.isHealthKitSynchronized {
+            return "Apple Health Synced"
+        }
+
+        return "Sync with Apple Health"
+    }
+
+    private func initializeOnboardingIfNeeded() {
+        phase = .questions
+        currentStep = .baseline
+        inlineInputError = nil
+        baselineWeightError = nil
+        baselineHeightError = nil
+        hideHealthSyncHero = false
+
+        viewModel.resetForNewOnboarding()
+
+        lastValidWeightInput = normalizeInput(viewModel.weightKgText, kind: .weight)
+        lastValidHeightInput = normalizeInput(viewModel.heightCmText, kind: .height)
+        scrollToTop()
+
+        Task {
+            await viewModel.prepareHealthDataOnEntry()
+            lastValidWeightInput = normalizeInput(viewModel.weightKgText, kind: .weight)
+            lastValidHeightInput = normalizeInput(viewModel.heightCmText, kind: .height)
+        }
+    }
+
+    private func scrollToTop() {
+        scrollProxy?.scrollTo(topAnchorID, anchor: .top)
     }
 
     private func regexPattern(for kind: NumericInputKind) -> String {
@@ -510,23 +924,49 @@ struct OnboardingView: View {
 
     private func validateCurrentInputStep() -> Bool {
         switch currentStep {
-        case .weight:
-            guard let weight = Double(viewModel.weightKgText), weight > 0 else {
-                inlineInputError = "Please input your weight in kg."
+        case .baseline:
+            baselineWeightError = nil
+            baselineHeightError = nil
+
+            var isValid = true
+
+            let trimmedWeight = viewModel.weightKgText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedWeight.isEmpty else {
+                baselineWeightError = "Please input your weight in kg."
                 return false
             }
-            return true
-        case .height:
-            guard let height = Double(viewModel.heightCmText), height > 0 else {
-                inlineInputError = "Please input your height in cm."
+
+            guard let weight = Double(trimmedWeight.replacingOccurrences(of: ",", with: ".")), weight > 0 else {
+                baselineWeightError = "Please input a valid weight in kg."
                 return false
             }
-            return true
+
+            if weight < 20 || weight > 400 {
+                baselineWeightError = "Weight seems out of range."
+                isValid = false
+            }
+
+            let trimmedHeight = viewModel.heightCmText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedHeight.isEmpty else {
+                baselineHeightError = "Please input your height in cm."
+                return false
+            }
+
+            guard let height = Double(trimmedHeight.replacingOccurrences(of: ",", with: ".")), height > 0 else {
+                baselineHeightError = "Please input a valid height in cm."
+                return false
+            }
+
+            if height < 80 || height > 250 {
+                baselineHeightError = "Height seems out of range."
+                isValid = false
+            }
+
+            return isValid
         default:
             return true
         }
     }
-
 }
 
 @MainActor

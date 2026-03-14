@@ -6,8 +6,8 @@ import SwiftUI
 final class AppCoordinator: ObservableObject {
     enum Route {
         case loading
-        case auth
-        case onboarding
+        case login
+        case onboardingLogin
         case main
     }
 
@@ -24,13 +24,13 @@ final class AppCoordinator: ObservableObject {
 
         switch container.authService.authState {
         case .signedOut:
-            route = .auth
+            route = .login
         case .signedIn(let user):
             if let firestoreUser = try? await container.firestoreUserRepository.loadUser(userId: user.id),
                firestoreUser.sportPlan != nil {
                 route = .main
             } else {
-                route = .onboarding
+                route = .onboardingLogin
             }
         }
     }
@@ -40,13 +40,13 @@ final class AppCoordinator: ObservableObject {
         Task {
             switch container.authService.authState {
             case .signedOut:
-                route = .auth
+                route = .login
             case .signedIn(let user):
                 if let firestoreUser = try? await container.firestoreUserRepository.loadUser(userId: user.id),
                    firestoreUser.sportPlan != nil {
                     route = .main
                 } else {
-                    route = .onboarding
+                    route = .onboardingLogin
                 }
             }
         }
@@ -58,6 +58,6 @@ final class AppCoordinator: ObservableObject {
 
     func signOut() {
         try? container.authService.signOut()
-        route = .auth
+        route = .login
     }
 }

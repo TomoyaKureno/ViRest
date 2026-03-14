@@ -325,19 +325,19 @@ enum DaysPerWeekAvailability: String, Codable, CaseIterable, Identifiable {
 }
 
 enum PreferredTime: String, Codable, CaseIterable, Identifiable {
+    case flexible
     case morning
     case midday
     case evening
-    case flexible
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
+        case .flexible: return "Flexible"
         case .morning: return "Morning"
         case .midday: return "Midday"
         case .evening: return "Evening"
-        case .flexible: return "Flexible"
         }
     }
 
@@ -346,14 +346,14 @@ enum PreferredTime: String, Codable, CaseIterable, Identifiable {
         let raw = try container.decode(String.self)
 
         switch raw {
+        case Self.flexible.rawValue, "no_preference":
+            self = .flexible
         case Self.morning.rawValue:
             self = .morning
         case Self.midday.rawValue, "lunch_break":
             self = .midday
         case Self.evening.rawValue:
             self = .evening
-        case Self.flexible.rawValue, "no_preference":
-            self = .flexible
         default:
             self = .flexible
         }
@@ -361,17 +361,17 @@ enum PreferredTime: String, Codable, CaseIterable, Identifiable {
 }
 
 enum SportEnvironment: String, Codable, CaseIterable, Identifiable {
+    case both
     case indoor
     case outdoor
-    case both
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
+        case .both: return "Both"
         case .indoor: return "Indoor"
         case .outdoor: return "Outdoor"
-        case .both: return "Both"
         }
     }
 }

@@ -131,12 +131,26 @@ struct RuleBasedRecommendationEngine: RecommendationProviding {
                 if lhs.hardQuality != rhs.hardQuality {
                     return lhs.hardQuality > rhs.hardQuality
                 }
-                return lhs.recommendation.score > rhs.recommendation.score
+                if lhs.recommendation.score != rhs.recommendation.score {
+                    return lhs.recommendation.score > rhs.recommendation.score
+                }
+                return normalizedToken(lhs.recommendation.displayName) < normalizedToken(rhs.recommendation.displayName)
             }
 
-        let topThree = Array(scored.prefix(3)).map(\.recommendation)
-        let primary = topThree.first ?? fallbackRecommendation(for: profile)
-        let alternatives = Array(topThree.dropFirst())
+        var rankedRecommendations = Array(scored.prefix(3)).map(\.recommendation)
+        if rankedRecommendations.count < 3 {
+            let existingNames = Set(rankedRecommendations.map { normalizedToken($0.displayName) })
+            let supplemental = supplementalRecommendations(
+                excluding: existingNames,
+                count: 3 - rankedRecommendations.count,
+                profile: profile,
+                currentRHR: currentRHR
+            )
+            rankedRecommendations.append(contentsOf: supplemental)
+        }
+
+        let primary = rankedRecommendations.first ?? fallbackRecommendation(for: profile, currentRHR: currentRHR)
+        let alternatives = Array(rankedRecommendations.dropFirst().prefix(2))
 
         let weeklyPlan = WeeklyPlan(
             weekStartDate: request.weekStartDate.startOfWeek(),
@@ -292,6 +306,8 @@ struct RuleBasedRecommendationEngine: RecommendationProviding {
             preferredTime: preferredTime,
             exerciseEnvironment: candidate.exercise.environment
         )
+        let rhrMatchScore = rhrFit(rhrBand: candidate.rhrBandRule.rhrBand, currentRHR: currentRHR)
+        let bmiMatchScore = bmiFit(ruleCategory: candidate.bmiRule.bmiCategory, userCategory: bmiCategory)
 
         let strictEquipmentCompatible = isStrictEquipmentCompatible(
             accessSelection: accessSelection,
@@ -311,10 +327,12 @@ struct RuleBasedRecommendationEngine: RecommendationProviding {
         hardQuality = max(0.05, min(1.0, hardQuality))
 
         let score =
-            hardQuality * 62 +
+            hardQuality * 50 +
+            rhrMatchScore * 12 +
+            bmiMatchScore * 8 +
             durationScore * 16 +
-            frequencyScore * 12 +
-            equipmentScore * 8 +
+            frequencyScore * 10 +
+            equipmentScore * 2 +
             preferredTimeScore * 2
 
         let reasons = buildReasons(
@@ -401,7 +419,7 @@ struct RuleBasedRecommendationEngine: RecommendationProviding {
         usedSafetyFallback: Bool
     ) -> [String] {
         var notes: [String] = [
-            "Recommendations are generated from exercise_matrix_v4_flat.json.",
+            "Recommendations are generated from sports.json (with bundled fallback data when needed).",
             "Target RHR (\(profile.questionnaireTargetRHRGoal?.displayName ?? "-")) is for tracking only and is not used as a recommendation filter.",
             "Preferred exercise time (\(profile.preferredTime.displayName)) is metadata only."
         ]
@@ -466,29 +484,29 @@ struct RuleBasedRecommendationEngine: RecommendationProviding {
     }
 
     private func resolvedCurrentRHR(profile: UserProfileInput, snapshot: HealthSnapshot?) -> Int {
-        if let rhr = snapshot?.restingHeartRate {
-            return Int(rhr.rounded())
-        }
         if let questionBand = profile.questionnaireCurrentRHRBand {
             return questionBand.representativeBPM
+        }
+        if let rhr = snapshot?.restingHeartRate {
+            return Int(rhr.rounded())
         }
         return 75
     }
 
     private func resolvedBMI(profile: UserProfileInput, snapshot: HealthSnapshot?) -> Double? {
+        let weight = profile.weightKg ?? snapshot?.weightKg
+        let heightCm = profile.heightCm ?? snapshot?.heightCm
+
+        if let weight, let heightCm, heightCm > 0 {
+            let meters = heightCm / 100
+            return weight / (meters * meters)
+        }
+
         if let bmi = snapshot?.bmi, bmi > 0 {
             return bmi
         }
 
-        let weight = profile.weightKg ?? snapshot?.weightKg
-        let heightCm = profile.heightCm ?? snapshot?.heightCm
-
-        guard let weight, let heightCm, heightCm > 0 else {
-            return nil
-        }
-
-        let meters = heightCm / 100
-        return weight / (meters * meters)
+        return nil
     }
 
     private func resolvedBMICategory(for bmi: Double?) -> String {
@@ -745,8 +763,18 @@ struct RuleBasedRecommendationEngine: RecommendationProviding {
         }
     }
 
-    private func fallbackRecommendation(for profile: UserProfileInput) -> SportRecommendation {
-        let exerciseName = catalog.exercises.first?.exercise ?? "Brisk walking"
+    private func fallbackRecommendation(for profile: UserProfileInput, currentRHR: Int) -> SportRecommendation {
+        let environmentMatched = catalog.exercises.filter {
+            isEnvironmentMatch(profile.environment, exerciseEnvironment: $0.environment)
+        }
+        let rhrMatched = environmentMatched.filter { exercise in
+            exercise.rhrBands.contains { rhrBandContains($0.rhrBand, bpm: currentRHR) }
+        }
+        let exerciseName =
+            rhrMatched.first?.exercise ??
+            environmentMatched.first?.exercise ??
+            catalog.exercises.first?.exercise ??
+            "Brisk walking"
 
         return SportRecommendation(
             activity: activityType(forExerciseName: exerciseName),
@@ -756,10 +784,124 @@ struct RuleBasedRecommendationEngine: RecommendationProviding {
             targetRPE: RPERange(min: 2, max: 4),
             reasons: [
                 "No strong match found for strict hard filters.",
-                "Fallback recommendation generated from exercise_matrix_v4_flat.json.",
+                "Fallback recommendation generated from sports catalog data.",
                 "Please review contraindications and seek medical clearance when needed."
             ]
         )
+    }
+
+    private func supplementalRecommendations(
+        excluding existingNames: Set<String>,
+        count: Int,
+        profile: UserProfileInput,
+        currentRHR: Int
+    ) -> [SportRecommendation] {
+        guard count > 0 else { return [] }
+
+        var usedNames = existingNames
+        var results: [SportRecommendation] = []
+
+        let environmentMatched = catalog.exercises.filter {
+            isEnvironmentMatch(profile.environment, exerciseEnvironment: $0.environment)
+        }
+
+        let prioritized = environmentMatched.sorted { lhs, rhs in
+            let lhsRHR = lhs.rhrBands.contains { rhrBandContains($0.rhrBand, bpm: currentRHR) }
+            let rhsRHR = rhs.rhrBands.contains { rhrBandContains($0.rhrBand, bpm: currentRHR) }
+            if lhsRHR != rhsRHR {
+                return lhsRHR && !rhsRHR
+            }
+            return normalizedToken(lhs.exercise) < normalizedToken(rhs.exercise)
+        }
+
+        for exercise in prioritized {
+            let key = normalizedToken(exercise.exercise)
+            guard !usedNames.contains(key) else { continue }
+            usedNames.insert(key)
+
+            let fallbackScore = max(18, 35 - (results.count * 5))
+            results.append(
+                SportRecommendation(
+                    activity: activityType(forExerciseName: exercise.exercise),
+                    displayName: exercise.exercise,
+                    score: Double(fallbackScore),
+                    plannedDurationMinutes: profile.sessionDuration.recommendedMinutes,
+                    targetRPE: targetRPE(for: currentRHR),
+                    reasons: [
+                        "Added as additional option to provide multiple matches.",
+                        "Ranked below your highest-fit recommendations."
+                    ],
+                    cautions: []
+                )
+            )
+
+            if results.count >= count {
+                break
+            }
+        }
+
+        return results
+    }
+
+    private func rhrFit(rhrBand: String, currentRHR: Int) -> Double {
+        if rhrBandContains(rhrBand, bpm: currentRHR) {
+            return 1.0
+        }
+
+        guard let parsedRange = parsedRHRRange(from: rhrBand) else {
+            return 0.65
+        }
+
+        let gap: Int
+        if currentRHR < parsedRange.lowerBound {
+            gap = parsedRange.lowerBound - currentRHR
+        } else if currentRHR > parsedRange.upperBound {
+            gap = currentRHR - parsedRange.upperBound
+        } else {
+            gap = 0
+        }
+
+        let normalizedGap = min(1.0, Double(gap) / 40.0)
+        return max(0.3, 1.0 - normalizedGap)
+    }
+
+    private func bmiFit(ruleCategory: String, userCategory: String) -> Double {
+        let normalizedRule = normalizedToken(ruleCategory)
+        let normalizedUser = normalizedToken(userCategory)
+        if normalizedRule == normalizedUser {
+            return 1.0
+        }
+        if normalizedRule == normalizedToken("Any BMI") {
+            return 0.82
+        }
+        return 0.6
+    }
+
+    private func parsedRHRRange(from band: String) -> ClosedRange<Int>? {
+        let lower = band.lowercased()
+        let numbers = lower
+            .components(separatedBy: CharacterSet.decimalDigits.inverted)
+            .compactMap { Int($0) }
+
+        if lower.contains("<=") || lower.contains("≤") {
+            guard let upper = numbers.first else { return nil }
+            return 0...upper
+        }
+
+        if lower.contains(">") {
+            guard let lowerBound = numbers.first else { return nil }
+            return (lowerBound + 1)...220
+        }
+
+        if numbers.count >= 2 {
+            return numbers[0]...numbers[1]
+        }
+
+        if let value = numbers.first {
+            return value...value
+        }
+
+        return nil
     }
 
     private func activityType(forExerciseName name: String) -> ActivityType {

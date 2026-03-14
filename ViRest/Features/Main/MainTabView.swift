@@ -4,6 +4,7 @@ import UIKit
 struct MainTabView: View {
     @StateObject private var mainCoordinator = MainCoordinator()
     @StateObject private var homeViewModel: HomeViewModel
+    @StateObject private var rewardsViewModel: RewardsViewModel
     @StateObject private var profileViewModel: ProfileViewModel
 
     private let onSignOut: () -> Void
@@ -11,11 +12,19 @@ struct MainTabView: View {
     init(container: AppContainer, onSignOut: @escaping () -> Void) {
         _homeViewModel = StateObject(wrappedValue: HomeViewModel(
             firestoreUserRepository: container.firestoreUserRepository,
+            userProfileRepository: container.userProfileRepository,
             authService: container.authService,
+            healthService: container.healthService,
             notificationService: container.notificationService,
             gamificationService: container.gamificationService,
             badgeRepository: container.badgeStateRepository,
             planAdjustmentService: container.planAdjustmentService
+        ))
+
+        _rewardsViewModel = StateObject(wrappedValue: RewardsViewModel(
+            badgeRepository: container.badgeStateRepository,
+            firestoreUserRepository: container.firestoreUserRepository,
+            authService: container.authService
         ))
 
         _profileViewModel = StateObject(wrappedValue: ProfileViewModel(
@@ -37,6 +46,12 @@ struct MainTabView: View {
                     Label("Plan", systemImage: "heart.text.square.fill")
                 }
                 .tag(MainCoordinator.Tab.home)
+
+            RewardsView(viewModel: rewardsViewModel)
+                .tabItem {
+                    Label("Rewards", systemImage: "rosette")
+                }
+                .tag(MainCoordinator.Tab.rewards)
 
             ProfileView(viewModel: profileViewModel, onSignOut: onSignOut)
                 .tabItem {

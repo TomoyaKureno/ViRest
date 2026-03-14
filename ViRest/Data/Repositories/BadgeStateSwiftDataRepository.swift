@@ -9,10 +9,22 @@ final class BadgeStateSwiftDataRepository: BadgeStateRepository {
     }
 
     func loadState() throws -> BadgeState {
-        try store.load(BadgeState.self, forKey: StorageKeys.badgeState) ?? .default
+        if var loaded = try store.load(BadgeState.self, forKey: StorageKeys.badgeState) {
+            let changed = loaded.normalizeRandomCriteriaIfNeeded()
+            if changed {
+                try store.save(loaded, forKey: StorageKeys.badgeState)
+            }
+            return loaded
+        }
+
+        let initial = BadgeState.default
+        try store.save(initial, forKey: StorageKeys.badgeState)
+        return initial
     }
 
     func saveState(_ state: BadgeState) throws {
-        try store.save(state, forKey: StorageKeys.badgeState)
+        var normalized = state
+        _ = normalized.normalizeRandomCriteriaIfNeeded()
+        try store.save(normalized, forKey: StorageKeys.badgeState)
     }
 }

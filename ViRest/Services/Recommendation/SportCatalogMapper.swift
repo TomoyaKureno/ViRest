@@ -1,17 +1,14 @@
 import Foundation
 
-// Maps RestingHeartRateRange to the exact band strings in sports.json
+// Maps onboarding RHR question bands to the exact labels in sports.json.
 // Note: sports.json uses en-dash (–) not hyphen (-)
-extension RestingHeartRateRange {
+extension CurrentRHRBandQuestion {
     var sportsJsonBand: String {
         switch self {
-        case .below50:    return "<= 60 bpm"
-        case .from50To60: return "<= 60 bpm"
-        case .from60To70: return "61 – 75 bpm"
-        case .from71To80: return "61 – 75 bpm"
-        case .from81To90: return "76 – 90 bpm"
-        case .above90:    return "> 90 bpm"
-        case .unknown:    return "61 – 75 bpm"  // default to moderate band
+        case .upTo60:    return "<= 60 bpm"
+        case .from61To75:return "61 – 75 bpm"
+        case .from76To90:return "76 – 90 bpm"
+        case .above90:   return "> 90 bpm"
         }
     }
 }
@@ -32,11 +29,15 @@ struct BMICalculator {
 }
 
 struct SportPrescription {
+    struct Phase {
+        var durationMinutes: Int
+        var daysPerWeek: Int
+    }
+
     var sportName: String
-    var minDurationMinutes: Int
-    var maxDurationMinutes: Int
-    var minDaysPerWeek: Int
-    var maxDaysPerWeek: Int
+    var hasProgression: Bool
+    var initial: Phase
+    var target: Phase
     var keyCautions: [String]
     var contraindications: [String]
 }
@@ -48,18 +49,44 @@ final class SportsCatalogLoader {
     init() { load() }
 
     private func load() {
-        guard let url = Bundle.main.url(forResource: "sports", withExtension: "json"),
-              let data = try? Data(contentsOf: url) else {
-            print("⚠️ sports.json not found in bundle")
-            return
+        let decoder = JSONDecoder()
+        for url in candidateURLs() {
+            guard let data = try? Data(contentsOf: url) else { continue }
+            do {
+                let parsed = try decoder.decode(SportsJsonRoot.self, from: data)
+                guard !parsed.exercises.isEmpty else { continue }
+                self.exercises = parsed.exercises
+                print("✅ Loaded \(exercises.count) exercises from \(url.lastPathComponent)")
+                return
+            } catch {
+                print("⚠️ Failed to decode \(url.lastPathComponent): \(error)")
+            }
         }
-        do {
-            let parsed = try JSONDecoder().decode(SportsJsonRoot.self, from: data)
-            self.exercises = parsed.exercises
-            print("✅ Loaded \(exercises.count) exercises from sports.json")
-        } catch {
-            print("⚠️ Failed to decode sports.json: \(error)")
+        print("⚠️ Unable to load exercise catalog from sports.json fallback chain")
+    }
+
+    private func candidateURLs() -> [URL] {
+        var urls: [URL] = []
+
+        if let sportsBundled = Bundle.main.url(forResource: "sports", withExtension: "json") {
+            urls.append(sportsBundled)
         }
+        if let legacyBundled = Bundle.main.url(forResource: "exercise_matrix_v4_flat", withExtension: "json") {
+            urls.append(legacyBundled)
+        }
+        if let cleanedBundled = Bundle.main.url(
+            forResource: "cleaned_exercise_matrix_grouped_v4_flat",
+            withExtension: "json"
+        ) {
+            urls.append(cleanedBundled)
+        }
+
+        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        urls.append(cwd.appendingPathComponent("ViRest/Resources/sports.json"))
+        urls.append(cwd.appendingPathComponent("ViRest/Resources/exercise_matrix_v4_flat.json"))
+        urls.append(cwd.appendingPathComponent("ViRest/Resources/cleaned_exercise_matrix_grouped_v4_flat.json"))
+
+        return urls
     }
 
     func prescription(
@@ -67,7 +94,8 @@ final class SportsCatalogLoader {
         rhrBand: String,
         bmiCategory: String
     ) -> SportPrescription? {
-        guard let exercise = exercises.first(where: { $0.name == sportName }) else {
+        let targetSportKey = Self.normalizedToken(sportName)
+        guard let exercise = exercises.first(where: { Self.normalizedToken($0.name) == targetSportKey }) else {
             return nil
         }
 
@@ -87,41 +115,70 @@ final class SportsCatalogLoader {
 
         guard let rule else { return nil }
 
-        // Duration — handle both standard and progression formats
-        let dur = rule.durationPrescription
-        let durMin: Int
-        let durMax: Int
-
-        if dur.isProgression {
-            // Use startPhase as the initial target
-            durMin = dur.startPhase?.minMinutes ?? dur.standardPhase?.minMinutes ?? 20
-            durMax = dur.startPhase?.maxMinutes ?? dur.standardPhase?.maxMinutes ?? 30
-        } else {
-            durMin = dur.standardPhase?.minMinutes ?? 20
-            durMax = dur.standardPhase?.maxMinutes ?? 30
-        }
-
-        // Frequency — handle both standard and progression formats
-        let freq = rule.weeklyFrequencyPrescription
-        let freqMin: Int
-        let freqMax: Int
-
-        if freq.isProgression {
-            freqMin = freq.startPhase?.minDaysPerWeek ?? freq.standardPhase?.minDaysPerWeek ?? 2
-            freqMax = freq.startPhase?.maxDaysPerWeek ?? freq.standardPhase?.maxDaysPerWeek ?? 3
-        } else {
-            freqMin = freq.standardPhase?.minDaysPerWeek ?? 2
-            freqMax = freq.standardPhase?.maxDaysPerWeek ?? 3
-        }
+        let duration = resolveDurationPhases(rule.durationPrescription)
+        let frequency = resolveFrequencyPhases(rule.weeklyFrequencyPrescription)
 
         return SportPrescription(
             sportName: exercise.name,
-            minDurationMinutes: durMin,
-            maxDurationMinutes: durMax,
-            minDaysPerWeek: freqMin,
-            maxDaysPerWeek: freqMax,
+            hasProgression: rule.durationPrescription.isProgression || rule.weeklyFrequencyPrescription.isProgression,
+            initial: .init(
+                durationMinutes: duration.initial,
+                daysPerWeek: frequency.initial
+            ),
+            target: .init(
+                durationMinutes: duration.target,
+                daysPerWeek: frequency.target
+            ),
             keyCautions: rule.keyCautions,
             contraindications: rule.contraindications
         )
+    }
+
+    private func resolveDurationPhases(
+        _ prescription: SportsJsonDurationPrescription
+    ) -> (initial: Int, target: Int) {
+        let standard = prescription.standardPhase?.minMinutes
+        let start = prescription.startPhase?.minMinutes
+        let target = prescription.targetPhase?.minMinutes
+
+        let initialValue: Int
+        let targetValue: Int
+        if prescription.isProgression {
+            initialValue = start ?? standard ?? target ?? 20
+            targetValue = target ?? standard ?? initialValue
+        } else {
+            let resolved = standard ?? start ?? target ?? 20
+            initialValue = resolved
+            targetValue = resolved
+        }
+        return (initial: initialValue, target: targetValue)
+    }
+
+    private func resolveFrequencyPhases(
+        _ prescription: SportsJsonFrequencyPrescription
+    ) -> (initial: Int, target: Int) {
+        let standard = prescription.standardPhase?.minDaysPerWeek
+        let start = prescription.startPhase?.minDaysPerWeek
+        let target = prescription.targetPhase?.minDaysPerWeek
+
+        let initialValue: Int
+        let targetValue: Int
+        if prescription.isProgression {
+            initialValue = start ?? standard ?? target ?? 2
+            targetValue = target ?? standard ?? initialValue
+        } else {
+            let resolved = standard ?? start ?? target ?? 2
+            initialValue = resolved
+            targetValue = resolved
+        }
+        return (initial: initialValue, target: targetValue)
+    }
+
+    private static func normalizedToken(_ value: String) -> String {
+        value
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "_", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+            .lowercased()
     }
 }

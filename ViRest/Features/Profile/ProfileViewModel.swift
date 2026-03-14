@@ -79,7 +79,12 @@ final class ProfileViewModel: ObservableObject {
             // Keep local SwiftData in sync (for offline fallback)
             profile = try userProfileRepository.loadProfile()
             weeklyGoal = try planRepository.loadGoal() ?? .threeTimesPerWeek
-            badgeState = try badgeRepository.loadState()
+            var loadedBadgeState = try badgeRepository.loadState()
+            let didChangeBadgeState = loadedBadgeState.normalizeRandomCriteriaIfNeeded()
+            if didChangeBadgeState {
+                try badgeRepository.saveState(loadedBadgeState)
+            }
+            badgeState = loadedBadgeState
             isLoading = false
         } catch {
             errorMessage = error.localizedDescription

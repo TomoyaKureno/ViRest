@@ -42,8 +42,8 @@ final class FirestoreUserRepository {
         let ref = db.collection("users").document(userId)
         let data: [String: Any] = [
             "age": profile.age as Any,
-            "restingHeartRate": profile.restingHeartRateRange.midpoint as Any,
-            "targetRestingHeartRate": profile.targetRestingHeartRateRange.midpoint as Any,
+            "restingHeartRate": profile.questionnaireCurrentRHRBand?.representativeBPM as Any,
+            "targetRestingHeartRate": profile.questionnaireTargetRHRGoal?.representativeBPM as Any,
             "displayName": profile.fullName,
             "lastActiveAt": FieldValue.serverTimestamp()
         ]
@@ -145,4 +145,23 @@ final class FirestoreUserRepository {
         return try snapshot.documents.map { try $0.data(as: CheckInHistoryEntry.self) }
     }
 
+}
+
+private extension TargetRHRGoalQuestion {
+    var representativeBPM: Int {
+        switch self {
+        case .from90To99:
+            return 95
+        case .from80To89:
+            return 85
+        case .from70To79:
+            return 75
+        case .from60To69:
+            return 65
+        case .from50To59:
+            return 55
+        case .below50:
+            return 48
+        }
+    }
 }

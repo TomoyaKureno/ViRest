@@ -11,9 +11,28 @@ struct ExerciseSeedCatalog: Decodable {
 struct ExerciseSeedExercise: Decodable {
     let exercise: String
     let environment: String
-    let impactLevel: String
+    let impactLevel: String?
     let equipment: [String]
     let rhrBands: [ExerciseSeedRHRBandRule]
+
+    private enum CodingKeys: String, CodingKey {
+        case exercise
+        case name
+        case environment
+        case impactLevel
+        case equipment
+        case rhrBands
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.exercise = try container.decodeIfPresent(String.self, forKey: .exercise)
+            ?? container.decode(String.self, forKey: .name)
+        self.environment = try container.decode(String.self, forKey: .environment)
+        self.impactLevel = try container.decodeIfPresent(String.self, forKey: .impactLevel)
+        self.equipment = try container.decodeIfPresent([String].self, forKey: .equipment) ?? []
+        self.rhrBands = try container.decodeIfPresent([ExerciseSeedRHRBandRule].self, forKey: .rhrBands) ?? []
+    }
 
     var id: String {
         exercise
@@ -43,11 +62,17 @@ struct ExerciseSeedDurationPrescription: Decodable {
     let targetPhase: ExerciseSeedDurationPhase?
 
     var entryRange: ClosedRange<Int>? {
-        (startPhase ?? standardPhase ?? targetPhase)?.range
+        if isProgression {
+            return (startPhase ?? standardPhase ?? targetPhase)?.range
+        }
+        return (standardPhase ?? startPhase ?? targetPhase)?.range
     }
 
     var targetRange: ClosedRange<Int>? {
-        (standardPhase ?? targetPhase ?? startPhase)?.range
+        if isProgression {
+            return (targetPhase ?? standardPhase ?? startPhase)?.range
+        }
+        return (standardPhase ?? targetPhase ?? startPhase)?.range
     }
 }
 
@@ -67,11 +92,17 @@ struct ExerciseSeedWeeklyFrequencyPrescription: Decodable {
     let targetPhase: ExerciseSeedWeeklyFrequencyPhase?
 
     var entryRange: ClosedRange<Int>? {
-        (startPhase ?? standardPhase ?? targetPhase)?.range
+        if isProgression {
+            return (startPhase ?? standardPhase ?? targetPhase)?.range
+        }
+        return (standardPhase ?? startPhase ?? targetPhase)?.range
     }
 
     var targetRange: ClosedRange<Int>? {
-        (standardPhase ?? targetPhase ?? startPhase)?.range
+        if isProgression {
+            return (targetPhase ?? standardPhase ?? startPhase)?.range
+        }
+        return (standardPhase ?? targetPhase ?? startPhase)?.range
     }
 }
 
@@ -104,6 +135,10 @@ enum ExerciseSeedLoader {
     private static func candidateURLs() -> [URL] {
         var urls: [URL] = []
 
+        if let sportsBundled = Bundle.main.url(forResource: "sports", withExtension: "json") {
+            urls.append(sportsBundled)
+        }
+
         if let bundled = Bundle.main.url(forResource: "exercise_matrix_v4_flat", withExtension: "json") {
             urls.append(bundled)
         }
@@ -116,8 +151,8 @@ enum ExerciseSeedLoader {
         }
 
         let cwdURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("ViRest/Resources/exercise_matrix_v4_flat.json")
-        urls.append(cwdURL)
+        urls.append(cwdURL.appendingPathComponent("ViRest/Resources/sports.json"))
+        urls.append(cwdURL.appendingPathComponent("ViRest/Resources/exercise_matrix_v4_flat.json"))
 
         let downloadsURL = URL(fileURLWithPath: "/Users/tomoya/Downloads/cleaned_exercise_matrix_grouped_v4_flat.json")
         urls.append(downloadsURL)

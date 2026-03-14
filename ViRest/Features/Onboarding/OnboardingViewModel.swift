@@ -3,11 +3,23 @@ import Combine
 
 @MainActor
 final class OnboardingViewModel: ObservableObject {
+    private static let healthKitSynchronizedDefaultsKey = "onboarding.healthkit.synchronized"
+
     struct RecommendationSummary: Equatable {
-        let activityName: String
-        let frequencyPerWeek: Int
-        let plannedDurationMinutes: Int
-        let cautions: [String]
+        struct SportFactor: Equatable, Identifiable {
+            let id = UUID()
+            let sportName: String
+            let compatibilityPercent: Int
+            let hasProgression: Bool
+            let weekOneFrequency: Int
+            let weekTwoPlusFrequency: Int
+            let weekOneSessionMinutes: Int
+            let weekTwoPlusSessionMinutes: Int
+            let cautions: [String]
+        }
+
+        let primaryActivityName: String
+        let sports: [SportFactor]
     }
 
     enum HealthImportState: Equatable {
@@ -34,8 +46,8 @@ final class OnboardingViewModel: ObservableObject {
 
     @Published var healthConcerns: Set<HealthConcernOption> = [.none]
 
-    @Published var sessionDuration: SessionDurationOption = .twentyToThirty
-    @Published var daysPerWeek: DaysPerWeekAvailability = .threeToFour
+    @Published var sessionDuration: SessionDurationOption = .tenToTwenty
+    @Published var daysPerWeek: DaysPerWeekAvailability = .twoToThree
     @Published var preferredTime: PreferredTime = .flexible
 
     @Published var environment: SportEnvironment = .both
@@ -52,6 +64,7 @@ final class OnboardingViewModel: ObservableObject {
     @Published var importedHealthSnapshot: HealthSnapshot?
     @Published var recommendationSummary: RecommendationSummary?
     @Published private(set) var healthImportState: HealthImportState = .idle
+    @Published private(set) var isHealthKitSynchronized = false
 
     private let userProfileRepository: UserProfileRepository
     private let planRepository: PlanRepository
@@ -60,6 +73,8 @@ final class OnboardingViewModel: ObservableObject {
     private let notificationService: NotificationScheduling
     private let onCompleted: () -> Void
     private var didAttemptAutoImport = false
+    private var pendingGuestProfile: UserProfileInput?
+    private var pendingGuestSportPlan: FirestoreSportPlan?
 
     init(
         userProfileRepository: UserProfileRepository,
@@ -79,12 +94,62 @@ final class OnboardingViewModel: ObservableObject {
         self.firestoreUserRepository = firestoreUserRepository
         self.authService = authService
         self.onCompleted = onCompleted
+        self.isHealthKitSynchronized = false
     }
 
     func autoImportHealthDataIfNeeded() {
         guard !didAttemptAutoImport else { return }
         didAttemptAutoImport = true
         importHealthData()
+    }
+
+    func resetForNewOnboarding() {
+        fullName = ""
+        ageText = ""
+        gender = nil
+
+        questionnaireCurrentRHRBand = .from61To75
+        questionnaireTargetRHRGoal = .from60To69
+        heightCmText = ""
+        weightKgText = ""
+
+        healthConcerns = [.none]
+        sessionDuration = .twentyToThirty
+        daysPerWeek = .threeToFour
+        preferredTime = .flexible
+        environment = .both
+        accessOptions = [.none]
+        enjoyableActivities = []
+        intensityPreference = .light
+        socialPreference = .either
+        consistency = .somewhatConsistent
+        cardioExperienceLevel = nil
+
+        isLoading = false
+        errorMessage = nil
+        importedHealthSnapshot = nil
+        recommendationSummary = nil
+        healthImportState = .idle
+        isHealthKitSynchronized = false
+        pendingGuestProfile = nil
+        pendingGuestSportPlan = nil
+        didAttemptAutoImport = false
+    }
+
+    func prepareHealthDataOnEntry() async {
+        healthImportState = .idle
+        isHealthKitSynchronized = false
+
+        if healthService.authorizationState == .authorized || hasPersistedHealthKitSyncState() {
+            isHealthKitSynchronized = true
+        }
+
+        let snapshot = await healthService.fetchLatestSnapshot(profile: nil)
+        guard containsImportedHealthMetrics(snapshot) else {
+            return
+        }
+
+        applyImportedMetrics(from: snapshot)
     }
 
     func shouldPresentHealthKitPrompt() async -> Bool {
@@ -97,39 +162,35 @@ final class OnboardingViewModel: ObservableObject {
             errorMessage = nil
             healthImportState = .requestingConsent
 
-            let granted = await healthService.requestAuthorization()
+            let granted: Bool
+            if healthService.authorizationState == .authorized {
+                granted = true
+            } else {
+                granted = await healthService.requestAuthorization()
+            }
             if !granted {
                 await MainActor.run {
                     self.healthImportState = .denied
+                    self.isHealthKitSynchronized = false
+                    self.persistHealthKitSyncState(false)
                     self.errorMessage = "Health access denied. You can enable permissions from iOS Settings > Health > Data Access."
                     self.isLoading = false
                 }
                 return
             }
+            await MainActor.run {
+                self.isHealthKitSynchronized = true
+            }
 
             let snapshot = await healthService.fetchLatestSnapshot(profile: nil)
             await MainActor.run {
-                if self.containsImportedHealthMetrics(snapshot) {
-                    self.importedHealthSnapshot = snapshot
-                    self.healthImportState = .imported
-                    if let age = snapshot.ageYears {
-                        self.ageText = String(age)
-                    }
-                    if let biologicalGender = snapshot.biologicalGender {
-                        self.gender = biologicalGender
-                    }
-                    if let height = snapshot.heightCm {
-                        self.heightCmText = String(format: "%.0f", height)
-                    }
-                    if let weight = snapshot.weightKg {
-                        self.weightKgText = String(format: "%.1f", weight)
-                    }
-                    if let rhr = snapshot.restingHeartRate {
-                        self.questionnaireCurrentRHRBand = Self.questionBand(from: rhr)
-                    }
-                } else {
+                if !self.containsImportedHealthMetrics(snapshot) {
                     self.healthImportState = .noData
+                    self.isHealthKitSynchronized = true
+                    self.persistHealthKitSyncState(true)
                     self.errorMessage = "No Health data available yet. If Apple Watch has data, make sure Health sync is complete."
+                } else {
+                    self.applyImportedMetrics(from: snapshot)
                 }
                 self.isLoading = false
             }
@@ -179,33 +240,35 @@ final class OnboardingViewModel: ObservableObject {
         }
     }
 
-    func submitAndCompleteIfValid() {
-        Task {
-            await submitInternal()
-            if recommendationSummary != nil {
-                onCompleted()
-            }
-        }
-    }
-
     func continueAfterRecommendation() {
         onCompleted()
+    }
+
+    func finalizePendingGuestSubmissionIfNeeded() async {
+        guard case .signedIn(let user) = authService.authState else { return }
+        guard let pendingGuestProfile, let pendingGuestSportPlan else { return }
+
+        do {
+            try await firestoreUserRepository.saveProfile(userId: user.id, profile: pendingGuestProfile)
+            try await firestoreUserRepository.saveSportPlan(userId: user.id, plan: pendingGuestSportPlan)
+            self.pendingGuestProfile = nil
+            self.pendingGuestSportPlan = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func submitInternal() async {
         isLoading = true
         errorMessage = nil
-
-        guard acceptedDisclaimer else {
-            errorMessage = "Please accept the medical disclaimer."
-            isLoading = false; return
-        }
-        guard !fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            errorMessage = "Please fill in your name."
-            isLoading = false; return
-        }
+        recommendationSummary = nil
 
         normalizeSelections()
+        guard validateMandatoryInputs() else {
+            isLoading = false
+            return
+        }
+
         let profile = buildProfile()
         let goalFrequency = derivedGoalFrequency()
 
@@ -214,33 +277,71 @@ final class OnboardingViewModel: ObservableObject {
             try userProfileRepository.saveProfile(profile)
             try planRepository.saveGoal(goalFrequency)
 
-            // 2. Generate top-3 sport plan using sports.json
-            let sportPlan = buildSportPlan(profile: profile)
-
-            // 3. Save to Firestore
-            guard case .signedIn(let user) = authService.authState else {
-                throw AppError.auth("Not authenticated")
-            }
-            try await firestoreUserRepository.saveProfile(userId: user.id, profile: profile)
-            try await firestoreUserRepository.saveSportPlan(userId: user.id, plan: sportPlan)
-
-            // 4. Keep existing local plan for offline support
+            // 2. Generate recommendations from sports catalog and derive persisted sport plan phases
             let snapshot = await healthService.fetchLatestSnapshot(profile: profile)
             let request = RecommendationRequest(
                 userProfile: profile, healthSnapshot: snapshot,
-                goalFrequency: weeklyGoal, weekStartDate: Date()
+                goalFrequency: goalFrequency, weekStartDate: Date()
             )
             let result = recommendationEngine.recommend(request: request)
+            let recommendedSports = [result.primary] + result.alternatives
+            let sportPlan = buildSportPlan(
+                profile: profile,
+                recommendedSports: recommendedSports,
+                fallbackWeeklySessions: max(1, result.weeklyPlan.sessions.count)
+            )
+            pendingGuestProfile = profile
+            pendingGuestSportPlan = sportPlan
+
+            // 3. Save to Firestore
+            if case .signedIn(let user) = authService.authState {
+                try await firestoreUserRepository.saveProfile(userId: user.id, profile: profile)
+                try await firestoreUserRepository.saveSportPlan(userId: user.id, plan: sportPlan)
+                pendingGuestProfile = nil
+                pendingGuestSportPlan = nil
+            }
+
+            // 4. Keep existing local plan for offline support
             try planRepository.saveCurrentPlan(result.weeklyPlan)
 
             _ = await notificationService.requestAuthorization()
             notificationService.schedulePlanReminders(for: result.weeklyPlan)
 
+            let maxScore = recommendedSports.map(\.score).max() ?? 1
+            let planBySportName = Dictionary(
+                uniqueKeysWithValues: sportPlan.sports.map {
+                    (Self.normalizedToken($0.displayName), $0)
+                }
+            )
+
             recommendationSummary = RecommendationSummary(
-                activityName: result.primary.displayName,
-                frequencyPerWeek: result.weeklyPlan.sessions.count,
-                plannedDurationMinutes: result.primary.plannedDurationMinutes,
-                cautions: result.primary.cautions
+                primaryActivityName: result.primary.displayName,
+                sports: recommendedSports.map { recommendation in
+                    let matchedPlan = planBySportName[Self.normalizedToken(recommendation.displayName)]
+                    let initial = matchedPlan?.resolvedInitialPrescription
+                    let target = matchedPlan?.resolvedTargetPrescription
+                    let resolvedWeekOneFrequency = initial?.weeklyTargetCount ?? result.weeklyPlan.sessions.count
+                    let resolvedWeekTwoPlusFrequency = target?.weeklyTargetCount ?? resolvedWeekOneFrequency
+                    let resolvedWeekOneDuration = initial?.durationMinutes ?? recommendation.plannedDurationMinutes
+                    let resolvedWeekTwoPlusDuration = target?.durationMinutes ?? resolvedWeekOneDuration
+                    let resolvedProgression =
+                        matchedPlan?.hasProgression
+                        ?? (resolvedWeekOneFrequency != resolvedWeekTwoPlusFrequency || resolvedWeekOneDuration != resolvedWeekTwoPlusDuration)
+
+                    return RecommendationSummary.SportFactor(
+                        sportName: recommendation.displayName,
+                        compatibilityPercent: Self.compatibilityPercent(
+                            score: recommendation.score,
+                            maxScore: maxScore
+                        ),
+                        hasProgression: resolvedProgression,
+                        weekOneFrequency: resolvedWeekOneFrequency,
+                        weekTwoPlusFrequency: resolvedWeekTwoPlusFrequency,
+                        weekOneSessionMinutes: resolvedWeekOneDuration,
+                        weekTwoPlusSessionMinutes: resolvedWeekTwoPlusDuration,
+                        cautions: recommendation.cautions
+                    )
+                }
             )
 
             isLoading = false
@@ -250,113 +351,87 @@ final class OnboardingViewModel: ObservableObject {
         }
     }
 
-    private func buildSportPlan(profile: UserProfileInput) -> FirestoreSportPlan {
+    private func buildSportPlan(
+        profile: UserProfileInput,
+        recommendedSports: [SportRecommendation],
+        fallbackWeeklySessions: Int
+    ) -> FirestoreSportPlan {
         let loader = SportsCatalogLoader.shared
-        let rhrBand = profile.restingHeartRateRange.sportsJsonBand
+        let rhrBand = profile.questionnaireCurrentRHRBand?.sportsJsonBand ?? CurrentRHRBandQuestion.from61To75.sportsJsonBand
         let bmiCategory = BMICalculator.category(
             heightCm: profile.heightCm, weightKg: profile.weightKg
         )
-        let userEnv = profile.environment.rawValue.capitalized
-        let userContraindications = profile.healthConditions.map { $0.displayName }
+        let weekReset = Date().startOfWeek()
+        var usedSportKeys = Set<String>()
+        var sports: [FirestoreSportEntry] = []
 
-        print("🏃 Building plan — RHR band: \(rhrBand), BMI: \(bmiCategory), env: \(userEnv)")
-        print("🏃 Total exercises available: \(loader.exercises.count)")
+        for recommendation in recommendedSports {
+            let normalizedName = Self.normalizedToken(recommendation.displayName)
+            guard !usedSportKeys.contains(normalizedName) else { continue }
+            usedSportKeys.insert(normalizedName)
 
-        var scored: [(name: String, prescription: SportPrescription, score: Double)] = []
-
-        for exercise in loader.exercises {
-            // Try exact RHR band first, then fall back to any available band
-            guard let presc = loader.prescription(
-                for: exercise.name,
-                rhrBand: rhrBand,
-                bmiCategory: bmiCategory
-            ) else { continue }
-
-            // Skip if any contraindication matches user's conditions
-            let isContraindicated = presc.contraindications.contains { contra in
-                userContraindications.contains {
-                    $0.localizedCaseInsensitiveContains(contra) ||
-                    contra.localizedCaseInsensitiveContains($0)
-                }
-            }
-            if isContraindicated { continue }
-
-            var score = 50.0
-
-            // Environment match bonus
-            let envMatch = exercise.environment == "Both"
-                || exercise.environment == userEnv
-                || profile.environment == .both
-            if envMatch { score += 20 }
-
-            // Enjoyable activity match bonus
-            let activityMatch = profile.enjoyableActivities.contains { act in
-                exercise.name.localizedCaseInsensitiveContains(act.displayName) ||
-                act.displayName.localizedCaseInsensitiveContains(exercise.name)
-            }
-            if activityMatch { score += 30 }
-
-            scored.append((name: exercise.name, prescription: presc, score: score))
-        }
-
-        print("🏃 Scored \(scored.count) eligible exercises")
-
-        // If still empty (very restrictive profile), grab ANY 3 exercises with any band/BMI
-        if scored.isEmpty {
-            print("⚠️ No exercises matched — using fallback scoring")
-            for exercise in loader.exercises {
-                guard let presc = loader.prescription(
-                    for: exercise.name,
+            let prescription =
+                loader.prescription(
+                    for: recommendation.displayName,
+                    rhrBand: rhrBand,
+                    bmiCategory: bmiCategory
+                )
+                ?? loader.prescription(
+                    for: recommendation.displayName,
                     rhrBand: rhrBand,
                     bmiCategory: "Any BMI"
-                ) ?? loader.prescription(
-                    for: exercise.name,
-                    rhrBand: exercise.rhrBands.first?.rhrBand ?? rhrBand,
-                    bmiCategory: bmiCategory
-                ) else { continue }
+                )
 
-                scored.append((name: exercise.name, prescription: presc, score: 50.0))
-                if scored.count >= 3 { break }
-            }
-        }
+            let initialDuration = prescription?.initial.durationMinutes ?? max(10, recommendation.plannedDurationMinutes)
+            let targetDuration = prescription?.target.durationMinutes ?? initialDuration
+            let initialWeekly = prescription?.initial.daysPerWeek ?? fallbackWeeklySessions
+            let targetWeekly = prescription?.target.daysPerWeek ?? initialWeekly
+            let hasProgression = prescription?.hasProgression ?? (initialDuration != targetDuration || initialWeekly != targetWeekly)
 
-        // Take top 3
-        let top3 = scored.sorted { $0.score > $1.score }.prefix(3)
-        print("🏃 Top 3: \(top3.map { $0.name })")
-
-        let weekReset = Date().startOfWeek()
-        let sports = top3.map { item in
-            FirestoreSportEntry(
-                id: item.name.lowercased().replacingOccurrences(of: " ", with: "_"),
-                displayName: item.name,
-                weeklyTargetCount: item.prescription.minDaysPerWeek,
-                completedThisWeek: 0,
-                durationMinutes: item.prescription.minDurationMinutes,
-                weekResetDate: weekReset
+            sports.append(
+                FirestoreSportEntry(
+                    id: normalizedName,
+                    displayName: recommendation.displayName,
+                    weeklyTargetCount: initialWeekly,
+                    completedThisWeek: 0,
+                    durationMinutes: initialDuration,
+                    weekResetDate: weekReset,
+                    hasProgression: hasProgression,
+                    initialPrescription: FirestoreSportPrescription(
+                        weeklyTargetCount: initialWeekly,
+                        durationMinutes: initialDuration
+                    ),
+                    targetPrescription: FirestoreSportPrescription(
+                        weeklyTargetCount: targetWeekly,
+                        durationMinutes: targetDuration
+                    )
+                )
             )
+            if sports.count >= 3 { break }
         }
 
-        return FirestoreSportPlan(generatedAt: Date(), sports: Array(sports))
+        return FirestoreSportPlan(generatedAt: Date(), sports: sports)
     }
 
 
     private func buildProfile() -> UserProfileInput {
         let resolvedName = fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "ViRest User" : fullName
+        let resolvedActivities: [ActivityType] = enjoyableActivities.isEmpty ? [.walking] : Array(enjoyableActivities)
         return UserProfileInput(
             fullName: resolvedName,
             age: Int(ageText),
             gender: gender,
             questionnaireCurrentRHRBand: questionnaireCurrentRHRBand,
             questionnaireTargetRHRGoal: questionnaireTargetRHRGoal,
-            heightCm: Double(heightCmText),
-            weightKg: Double(weightKgText),
+            heightCm: parsedNumericValue(from: heightCmText),
+            weightKg: parsedNumericValue(from: weightKgText),
             questionnaireHealthConcerns: normalizedHealthConcerns(),
             sessionDuration: sessionDuration,
             daysPerWeek: daysPerWeek,
             preferredTime: preferredTime,
             environment: environment,
             questionnaireAccessOptions: normalizedAccessOptions(),
-            enjoyableActivities: Array(enjoyableActivities),
+            enjoyableActivities: resolvedActivities,
             intensityPreference: intensityPreference,
             socialPreference: socialPreference,
             consistency: consistency,
@@ -385,13 +460,25 @@ final class OnboardingViewModel: ObservableObject {
     }
 
     private func validateMandatoryInputs() -> Bool {
-        guard let height = Double(heightCmText), height > 0 else {
+        let trimmedHeight = heightCmText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedHeight.isEmpty else {
             errorMessage = "Height is required."
             return false
         }
 
-        guard let weight = Double(weightKgText), weight > 0 else {
+        guard let height = parsedNumericValue(from: trimmedHeight), height > 0 else {
+            errorMessage = "Please input a valid height in cm."
+            return false
+        }
+
+        let trimmedWeight = weightKgText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedWeight.isEmpty else {
             errorMessage = "Weight is required."
+            return false
+        }
+
+        guard let weight = parsedNumericValue(from: trimmedWeight), weight > 0 else {
+            errorMessage = "Please input a valid weight in kg."
             return false
         }
 
@@ -418,18 +505,35 @@ final class OnboardingViewModel: ObservableObject {
         return true
     }
 
+    private func parsedNumericValue(from rawValue: String) -> Double? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let normalized = trimmed.replacingOccurrences(of: ",", with: ".")
+        return Double(normalized)
+    }
+
     private func containsImportedHealthMetrics(_ snapshot: HealthSnapshot) -> Bool {
-        snapshot.ageYears != nil ||
-        snapshot.biologicalGender != nil ||
-        snapshot.stepCount != nil ||
-        snapshot.activeEnergyKCal != nil ||
         snapshot.heightCm != nil ||
         snapshot.weightKg != nil ||
-        snapshot.restingHeartRate != nil ||
-        snapshot.walkingHeartRateAverage != nil ||
-        snapshot.peakHeartRate != nil ||
-        snapshot.heartRateRecovery != nil ||
-        snapshot.vo2Max != nil
+        snapshot.restingHeartRate != nil
+    }
+
+    private func applyImportedMetrics(from snapshot: HealthSnapshot) {
+        importedHealthSnapshot = snapshot
+        healthImportState = .imported
+        isHealthKitSynchronized = true
+        persistHealthKitSyncState(true)
+        errorMessage = nil
+
+        if let height = snapshot.heightCm {
+            heightCmText = String(format: "%.0f", height)
+        }
+        if let weight = snapshot.weightKg {
+            weightKgText = String(format: "%.1f", weight)
+        }
+        if let rhr = snapshot.restingHeartRate {
+            questionnaireCurrentRHRBand = Self.questionBand(from: rhr)
+        }
     }
 
     private func normalizedHealthConcerns() -> [HealthConcernOption] {
@@ -466,5 +570,28 @@ final class OnboardingViewModel: ObservableObject {
         default:
             return .above90
         }
+    }
+
+    private static func compatibilityPercent(score: Double, maxScore: Double) -> Int {
+        guard maxScore > 0 else { return 0 }
+        let raw = (score / maxScore) * 100
+        let clamped = min(100, max(1, raw))
+        return Int(clamped.rounded())
+    }
+
+    private static func normalizedToken(_ value: String) -> String {
+        value
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "_", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+            .lowercased()
+    }
+
+    private func hasPersistedHealthKitSyncState() -> Bool {
+        UserDefaults.standard.bool(forKey: Self.healthKitSynchronizedDefaultsKey)
+    }
+
+    private func persistHealthKitSyncState(_ value: Bool) {
+        UserDefaults.standard.set(value, forKey: Self.healthKitSynchronizedDefaultsKey)
     }
 }

@@ -1,347 +1,180 @@
-# ViRest Technical Documentation
+# ViRest Technical Documentation (Updated)
 
-## 1. Overview
+Dokumen ini merepresentasikan implementasi **saat ini** di branch terbaru setelah integrasi Firebase + revisi flow onboarding.
 
-ViRest is an iOS SwiftUI application that recommends sports activities to help users improve resting heart rate (RHR) using:
+## 1. Ringkasan Aplikasi
 
-- User onboarding questionnaire input
-- Apple Health / Apple Watch-synced HealthKit data (read on iPhone)
-- Rule-based recommendation and plan-adjustment logic
+ViRest adalah aplikasi iOS (SwiftUI) untuk membantu user meningkatkan kondisi kardio secara bertahap melalui:
 
-Current product scope is iPhone app only. There is no watchOS companion UI in this phase.
+- Auth (Apple / Google) berbasis Firebase
+- Onboarding question flow (single-screen, data-driven step)
+- Integrasi HealthKit (opsional, dengan prompt saat step pertama)
+- Rekomendasi olahraga berbasis rule engine
+- Tracking check-in dan progres title/badge
 
-## 2. Technology Stack
+## 2. Tech Stack
 
 - Language: Swift 5
 - UI: SwiftUI
-- Architecture: MVVM + Coordinator + Dependency Injection
-- Persistence: SwiftData (key-value style record + JSON payload)
-- Health integration: HealthKit (read)
+- Arsitektur: MVVM + Coordinator + Dependency Injection
+- Backend: Firebase Auth + Cloud Firestore
+- Local persistence: SwiftData (key-value JSON records)
+- Health data: HealthKit (read)
 - Notifications: UserNotifications
-- Auth abstraction: Firebase-style service interface (current implementation is placeholder local session persistence)
 
-## 3. Architecture
+## 3. Arsitektur Tingkat Tinggi
 
-### 3.1 Layers
+### 3.1 Layer
 
-- App/Composition:
-  - App lifecycle, DI container, route coordinator
-- Features:
-  - Auth, Onboarding, Home, Check-In, Profile
-- Core:
-  - Domain models, protocols, shared utilities
-- Services:
-  - Auth, HealthKit, Recommendation, Plan Adjustment, Notifications, Gamification
-- Data:
-  - SwiftData store and repositories
-- DesignSystem:
-  - Shared style components and reusable UI blocks
+- `App/`: composition root, coordinator, dependency container
+- `Features/`: Auth, Onboarding, Home, Profile, Main tabs
+- `Services/`: Auth, Health, Recommendation, Planning, Notification, Gamification
+- `Data/`: Firestore models/repository + SwiftData repositories
+- `Core/`: domain model, protocol, utility
+- `DesignSystem/`: shared palette, typography, reusable styles/components
 
 ### 3.2 Dependency Injection
 
-`AppContainer` builds and holds all repositories/services and injects them into ViewModels.
+Semua dependency dibuat di `AppContainer`:
 
-### 3.3 Coordinator Flow
+- Auth: `FirebaseAuthService`
+- Firestore: `FirestoreUserRepository`
+- Health: `HealthKitService`
+- Recommendation: `RuleBasedRecommendationEngine`
+- Notifications: `UserNotificationService`
+- Local repos (SwiftData): profile/plan/check-in/badge
+
+## 4. App Route Flow
+
+Source of truth: `AppCoordinator`.
 
 ```mermaid
 flowchart TD
-    A["ViRestApp"] --> B["RootView"]
-    B --> C["AppCoordinator.bootstrap()"]
-    C --> D{"Auth State"}
-    D -->|signedOut| E["Auth Flow"]
-    D -->|signedIn + no profile| F["Onboarding Flow"]
-    D -->|signedIn + profile exists| G["Main Tabs"]
-    G --> H["Home"]
-    G --> I["Check-In"]
-    G --> J["Profile"]
+    A[App Launch] --> B[restoreSession]
+    B --> C{authState}
+    C -->|signedOut| D[Auth Screen]
+    C -->|signedIn| E{Firestore user.sportPlan exists?}
+    E -->|No| F[Onboarding]
+    E -->|Yes| G[Main Tabs]
 ```
 
-## 4. Project Structure
+Perilaku penting:
 
-```text
-ViRest/
-  App/
-  Core/
-    Models/
-    Protocols/
-    Utilities/
-  Data/
-    Repositories/
-    SwiftData/
-  DesignSystem/
-  Features/
-    Auth/
-    Onboarding/
-    Home/
-    CheckIn/
-    Profile/
-    Main/
-  Services/
-    Auth/
-    Health/
-    Recommendation/
-    Planning/
-    Notification/
-    Gamification/
-  Resources/
-    exercise_seed_data_v2.json
-```
+- Fresh app open + belum login: ke **Auth**.
+- Login sukses + belum punya `sportPlan`: ke **Onboarding**.
+- Login sukses + sudah punya `sportPlan`: ke **Main**.
+- App ditutup saat onboarding (belum complete), lalu dibuka lagi: kembali ke **Onboarding** (karena `sportPlan` belum ada).
+- Tombol back di pertanyaan pertama onboarding: trigger exit onboarding via sign-out, kembali ke **Auth**.
 
-## 5. Domain Models
+## 5. Auth
 
-### 5.1 User profile
+Implementasi di `FirebaseAuthService`:
 
-`UserProfileInput` stores onboarding answers and user context:
+- `signInWithApple()`
+- `signInWithGoogle()`
+- `restoreSession()` dari `UserDefaults`
+- `signOut()`
 
-- Identity/context: `fullName`, `age`, `gender`
-- RHR questionnaire:
-  - `questionnaireCurrentRHRBand`
-  - `questionnaireTargetRHRGoal` (goal-only for tracking/motivation)
-- Body metrics: `heightCm`, `weightKg`
-- Safety: `questionnaireHealthConcerns`
-- Constraints/preferences:
-  - `sessionDuration`, `daysPerWeek`, `preferredTime`
-  - `environment`, `questionnaireAccessOptions`
-  - `intensityPreference`, `socialPreference`, `consistency`, `cardioExperienceLevel`
-- Compliance: `acceptedDisclaimer`
+Setelah sign-in, `AuthViewModel` memanggil `FirestoreUserRepository.ensureUserExists(authUser:)` untuk memastikan dokumen user tersedia di Firestore.
 
-### 5.2 Health snapshot
+Catatan:
 
-`HealthSnapshot` includes:
+- Tidak ada halaman register terpisah; flow saat ini menggunakan federated sign-in (Apple/Google).
 
-- Steps, active energy, height, weight, BMI
-- Resting HR, walking HR average, peak HR, HR recovery, VO2 max
-- Data source marker: `healthKit`, `manual`, `mixed`
+## 6. Onboarding (Current Implementation)
 
-### 5.3 Recommendation and planning
+### 6.1 Konsep UI + Navigasi
 
-- `SportRecommendation`: single recommendation result + score + reasons
-- `WeeklyPlan`: primary recommendation, alternatives, sessions, notes
-- `SessionPlan`: session number, activity, preferred time, planned duration, target RPE
-- `SessionCheckIn`: post-activity user confirmation input
+- Tetap satu tampilan onboarding (`OnboardingView`) dengan `currentStep` enum.
+- Data pertanyaan berubah per-step, **layout tetap**.
+- `Next` pindah ke pertanyaan berikutnya.
+- `Back` pindah ke pertanyaan sebelumnya.
+- Jika `Back` pada step pertama, keluar onboarding (kembali ke auth via coordinator flow).
 
-### 5.4 Suitability and progression
+### 6.2 Section dan Pertanyaan (5 section, 10 pertanyaan)
 
-- `SuitabilityAssessment`: zone (`green/yellow/red`), score, reasons, decision
-- `ProgressionDecision`: keep, downgrade, reduce volume, switch alternative, progress
+1. **Current Health Baseline**
+1. `currentRHR`
+1. `weight`
+1. `height`
 
-### 5.5 Gamification
+2. **Exercise Preference**
+1. `environment`
+1. `preferredTime`
 
-- `BadgeState`: completed sessions, streak, level, earned badges
-- `ProgressionLevel`: level 1-6 with titles and session thresholds
+3. **Exercise Availability & Commitment**
+1. `duration`
+1. `frequency`
+1. `equipment` (multi-select)
 
-## 6. Questionnaire-to-Rule Mapping
+4. **Safety Screening**
+1. `contraindications` (multi-select)
 
-The onboarding questionnaire is implemented in sectioned steps and mapped to recommendation logic by rule type.
+5. **Goal Setting**
+1. `targetRHR`
 
-1. Current RHR band
-   - Rule: hard filter
-   - Mapped to JSON prescription `rhrBand`
-2. Target RHR
-   - Rule: goal-only (not filter)
-3. Preferred environment
-   - Rule: hard filter
-   - Mapped to JSON `environments`
-4. Session duration
-   - Rule: soft scoring
-   - Mapped to JSON `durationPhases`
-5. Weekly frequency
-   - Rule: soft scoring
-   - Mapped to JSON `frequencyPhases`
-6. Access/equipment options
-   - Rule: hard filter
-   - Mapped to JSON `accessOptions`
-7. Health concerns
-   - Rule: hard safety filter
-   - Mapped to JSON `contraindicationTags`
-8. Experience level
-   - Rule: soft scoring with higher penalty for high-demand exercises
-   - Mapped to JSON `minExperienceLevel`
-9. Preferred time
-   - Rule: preference-only ranking (not filter)
+### 6.3 HealthKit Prompt Behavior
 
-## 7. Recommendation Engine
+Saat user masuk step pertama (`currentRHR`):
 
-`RuleBasedRecommendationEngine` is fully JSON-seed-driven.
+- App cek `shouldPresentAuthorizationPrompt()`.
+- Jika status HealthKit memang masih perlu request, tampil alert konfirmasi.
+- Jika user pilih izinkan, app langsung request authorization HealthKit.
+- Jika authorization sudah pernah diberikan dan status `unnecessary`, prompt tidak muncul lagi.
 
-### 7.1 Data source
+### 6.4 Validasi Input
 
-- Loaded from `exercise_seed_data_v2.json` through `ExerciseSeedLoader`
-- No hardcoded catalog struct is used for exercise seed content
+- Berat (`weightKgText`) wajib angka > 0.
+- Tinggi (`heightCmText`) wajib angka > 0.
+- Guard range submit:
+  - Height: 80...250 cm
+  - Weight: 20...400 kg
+- Multi-select concern dan access dinormalisasi (`none` mutual-exclusion).
 
-### 7.2 Processing stages
+Regex guard (on input):
 
-1. Hard filters:
-   - RHR band match
-   - Environment compatibility
-   - Access/equipment compatibility
-   - Contraindication exclusion
-2. Soft scoring:
-   - Duration fit
-   - Frequency fit
-   - Experience fit
-3. Preference-only ranking:
-   - Preferred exercise time
-4. Goal-only:
-   - Target RHR stored in notes/tracking context only
+- Weight: `^[0-9]{0,3}(?:\.[0-9]{0,1})?$`
+- Height: `^[0-9]{0,3}$`
 
-### 7.3 Empty-result prevention
+Error message ditampilkan di bawah judul pertanyaan.
 
-- If strict hard filter returns empty due access mismatch, engine relaxes access constraint while keeping safety and eligibility checks.
-- Duration/frequency are overlap-based soft similarity; no exact hard reject.
+### 6.5 Submit Flow Onboarding
 
-### 7.4 Score composition
+`submitAndCompleteIfValid()` melakukan:
 
-`totalScore = hard * 60 + duration * 18 + frequency * 14 + experience * 6 + preferredTime * 2`
+1. Validasi mandatory input
+2. Build `UserProfileInput`
+3. Simpan profile + weekly goal ke local SwiftData
+4. Generate sport plan top-3 untuk Firestore (`sports.json`)
+5. Save profile + sport plan ke Firestore
+6. Generate weekly plan lokal via recommendation engine (`exercise_matrix_v4_flat.json`)
+7. Schedule notification reminder
+8. Jika sukses, callback completion ke `AppCoordinator.didCompleteOnboarding()`
 
-The engine returns:
+## 7. Data Model Penting
 
-- Primary recommendation
-- Top alternatives
-- Auto-generated weekly sessions (count capped by both goal and user availability)
+### 7.1 Firestore `users`
 
-### 7.5 Output explainability
+Field utama (ringkas):
 
-Each recommendation includes reasons:
-
-- RHR match
-- Environment/access fit
-- Safety/conflict result
-- Duration fit
-- Frequency fit
-- Experience fit
-
-## 8. HealthKit Integration
-
-### 8.1 Authorization and read scope
-
-Reads:
-
-- `stepCount`
-- `activeEnergyBurned`
-- `height`
-- `bodyMass`
+- `id`, `email`, `displayName`
+- `age`
 - `restingHeartRate`
-- `walkingHeartRateAverage`
-- `heartRate` (for peak)
-- `vo2Max`
-- `heartRateRecoveryOneMinute`
-- Characteristics: date of birth, biological sex
+- `targetRestingHeartRate`
+- `currentTitleId`
+- `totalActionsCompleted`
+- `sportPlan`
+- `createdAt`, `lastActiveAt`
 
-### 8.2 Import behavior
+`users/{uid}/checkIns` subcollection dipakai untuk histori check-in.
 
-- On onboarding health step, consent is requested automatically.
-- If data exists, fields are prefilled (age, gender, height, weight, current RHR band).
-- If unavailable/denied, app continues with manual fallback values.
+### 7.2 Firestore `titles`
 
-### 8.3 Apple Watch relationship
+- `name`
+- `minTotalActionsRequired`
+- `displayOrder`
 
-No watchOS app UI is required for MVP.
-Apple Watch metrics are consumed via HealthKit sync on iPhone.
-
-## 9. Onboarding Flow
-
-### 9.1 Step sequence
-
-1. Health sync
-2. Physiological
-3. Health safety
-4. Time constraint
-5. Environment
-6. Preferences
-7. Weekly goal + disclaimer
-
-### 9.2 Mandatory validation (current implementation)
-
-- Height > 0
-- Weight > 0
-- At least one health concern selection
-- At least one access option
-- Disclaimer accepted
-
-### 9.3 Save and generation flow
-
-On submit:
-
-1. Save profile
-2. Save weekly goal
-3. Fetch latest health snapshot
-4. Generate recommendation
-5. Save current weekly plan
-6. Request notification permission and schedule reminders
-
-## 10. Home/Recalibration Behavior
-
-`HomeViewModel` recalibrates plan when:
-
-- No current plan exists
-- Plan age >= 7 days
-- Weekly adherence < 40%
-- Resting HR trend is elevated (>= 85 bpm)
-
-Recalibration re-runs recommendation using latest profile + health snapshot.
-
-## 11. Check-In and Plan Adjustment
-
-### 11.1 Check-in input
-
-User confirms completed activity and submits:
-
-- Perceived difficulty
-- Fatigue level
-- Pain level
-- Discomfort areas (only if pain is not "no pain")
-- Optional notes
-
-### 11.2 Adjustment engine
-
-`RuleBasedPlanAdjustmentService` rules:
-
-- Red triggers:
-  - Moderate/strong pain
-  - Too exhausting
-  - Breathing discomfort
-- Repeated over-fatigue
-- Repeated easy/no pain sessions
-
-Decisions:
-
-- Keep
-- Downgrade intensity
-- Reduce volume
-- Switch to alternative recommendation
-- Progress gradually
-
-## 12. Gamification
-
-`GamificationService` updates:
-
-- Completed session count
-- Daily streak
-- Level progression by session threshold
-- Badges:
-  - First check-in
-  - 3-day streak
-  - 10-session consistency
-
-Appreciation message is generated after each check-in based on current level.
-
-## 13. Notifications
-
-`UserNotificationService` provides:
-
-- Weekly pending-target reminder (repeating time based on preferred time)
-- Immediate positive notification after check-in completion
-- Reminder cleanup and rescheduling on plan updates
-
-## 14. Persistence Strategy
-
-### 14.1 Store design
-
-- SwiftData entity `KeyValueRecord` (`key`, `payload`, `updatedAt`)
-- Generic `SwiftDataKeyValueStore` encodes/decodes domain models as JSON blob
-
-### 14.2 Keys
+### 7.3 Local SwiftData Keys
 
 - `user_profile`
 - `weekly_goal`
@@ -349,130 +182,135 @@ Appreciation message is generated after each check-in based on current level.
 - `check_ins`
 - `badge_state`
 
-### 14.3 Repositories
+## 8. Recommendation Engine
 
-- UserProfile repository
-- Plan repository
-- CheckIn repository
-- BadgeState repository
+Implementasi: `RuleBasedRecommendationEngine`.
 
-## 15. Authentication
+Sumber data: `exercise_matrix_v4_flat.json`.
 
-Auth interface follows `AuthProviding`.
+Pipeline:
 
-Current concrete implementation (`FirebaseAuthService`) is placeholder/local:
+1. Hard filters:
+- environment
+- RHR band
+- BMI rule
+- contraindication check
 
-- Stores a serialized `AuthUser` in `UserDefaults`
-- Exposes Apple/Google sign-in methods
-- Production Firebase SDK integration is not yet wired
+2. Relaxation strategy bila kandidat kosong:
+- relax BMI
+- relax RHR + BMI
+- relax strict equipment compatibility
+- safety fallback (kandidat konflik paling minimal)
 
-## 16. Design System
+3. Scoring:
 
-Custom SwiftUI design primitives:
+- `hardQuality * 62`
+- `durationScore * 16`
+- `frequencyScore * 12`
+- `equipmentScore * 8`
+- `preferredTimeScore * 2`
 
-- Gradient atmospheric background with animated aurora circles
-- SurfaceCard (glassmorphism-like)
-- Primary/secondary buttons
-- Chip controls (single/multi-select)
-- Shared typography (`AvenirNext`) and palette tokens
-- Weekly goal selector with light-themed bottom sheet wheel picker
+Output:
 
-## 17. Configuration and Permissions
+- primary recommendation
+- alternatives
+- weekly sessions (dibatasi goal + availability user)
+- plan notes (menjelaskan fallback/relaxation jika terjadi)
 
-### 17.1 Entitlements
+## 9. Home, Check-In, Profile
 
-- Sign in with Apple
-- HealthKit capability
+### 9.1 Home
 
-### 17.2 Info.plist keys (from project build settings)
+- Load user dan `sportPlan` dari Firestore.
+- Tampilkan kartu sport mingguan + progress completed/target.
+- Weekly counter di-reset saat ganti minggu (`weekResetDate`).
 
+### 9.2 Check-In
+
+Dari Home, user tap `+` pada sport:
+
+1. Confirmation dialog
+2. Bottom sheet check-in form
+3. Submit:
+- increment `totalActionsCompleted`
+- increment `completedThisWeek` untuk sport terkait
+- simpan history check-in
+- evaluate title upgrade
+- evaluate badge/gamification
+- generate suitability assessment (green/yellow/red)
+
+### 9.3 Profile
+
+- Menampilkan user data (local + firestore)
+- Menampilkan title progression
+- Menampilkan check-in history
+- Weekly goal currently locked post-onboarding
+
+## 10. Notification
+
+`UserNotificationService`:
+
+- Permission request
+- Plan reminder berdasarkan preferred time
+- Target achieved notification setelah check-in
+- Support reminder per sport + mid-week nudge
+
+## 11. Design System
+
+- Typography: AvenirNext family
+- Palette: `richBlack`, `vibrantGreen`, `slateGray`
+- Reusable style: `SurfaceCard`, button styles, gradient background
+- Onboarding mempertahankan layout existing; update fokus di logic/nav/data
+
+## 12. Resource Files
+
+- `ViRest/sports.json`
+  - dipakai `SportsCatalogLoader` untuk generate Firestore sport plan saat onboarding
+- `ViRest/Resources/exercise_matrix_v4_flat.json`
+  - dipakai `RuleBasedRecommendationEngine` untuk weekly recommendation plan lokal
+
+## 13. Permissions & Capability
+
+- HealthKit capability (`ViRest.entitlements`)
+- Info plist keys via build settings:
 - `NSHealthShareUsageDescription`
 - `NSHealthUpdateUsageDescription`
 
-## 18. Build and Run
+## 14. Build & Run
 
-### 18.1 Requirements
+Prerequisites:
 
-- Xcode with iOS Simulator support
-- Valid signing/team settings for your environment
+- Xcode terbaru dengan iOS Simulator
+- Firebase project config yang valid (termasuk setup app + auth providers)
+- Firestore collections minimal: `users`, `titles`
 
-### 18.2 Build command
+Build command:
 
 ```bash
-xcodebuild -scheme ViRest -destination 'platform=iOS Simulator,name=iPhone 17' build
+xcodebuild -project "ViRest.xcodeproj" -scheme "ViRest" -destination 'platform=iOS Simulator,name=iPhone 17' build
 ```
 
-## 19. Known Limitations and Technical Notes
+## 15. Known Technical Notes
 
-1. Auth service is placeholder, not yet connected to real Firebase/Auth SDK flows.
-2. `SessionCheckIn` still stores `actualDurationMinutes`, currently filled from planned duration.
-3. `SessionPlan.scheduledDay` is retained as legacy compatibility field but not used in current UX.
-4. `ExerciseSeedLoader` has a local fallback path to `/Users/tomoya/Downloads/...` that should be removed for production packaging.
-5. `SessionDurationOption` case names are legacy-labeled, while displayed options and engine mapping already follow current questionnaire labels.
-6. Availability defaults are used if some questionnaire values are absent in older stored profiles.
+1. Onboarding menyimpan dua jenis output plan:
+- Firestore plan (`sports.json`) untuk tampilan main app
+- WeeklyPlan local (`exercise_matrix_v4_flat.json`) untuk engine + reminder context
 
-## 20. Extension Guide
+2. Session restore auth state saat ini berbasis local persisted auth user + active flag.
 
-### 20.1 Add new exercise recommendations
+3. Fallback path lokal di loader (`/Users/tomoya/Downloads/...`) masih ada dan sebaiknya dibersihkan untuk produksi.
 
-1. Update `Resources/exercise_seed_data_v2.json`
-2. Ensure new item has:
-   - `rhrBand`
-   - `environments`
-   - `accessOptions`
-   - `contraindicationTags`
-   - phases for intensity, duration, frequency
-3. If needed, map new `seedID` to app `ActivityType` label in engine.
+## 16. File Map (Quick Reference)
 
-### 20.2 Adjust scoring policy
+- App route: `ViRest/App/AppCoordinator.swift`
+- Root composition: `ViRest/App/RootView.swift`
+- DI container: `ViRest/App/AppContainer.swift`
+- Auth service: `ViRest/Services/Auth/FirebaseAuthService.swift`
+- Onboarding UI: `ViRest/Features/Onboarding/OnboardingView.swift`
+- Onboarding VM: `ViRest/Features/Onboarding/OnboardingViewModel.swift`
+- Firestore repo: `ViRest/Data/Repositories/FirestoreUserRepository.swift`
+- Recommendation engine: `ViRest/Services/Recommendation/RuleBasedRecommendationEngine.swift`
+- Home VM: `ViRest/Features/Home/HomeViewModel.swift`
+- Check-in VM: `ViRest/Features/Home/CheckInSheetViewModel.swift`
+- Profile VM: `ViRest/Features/Profile/ProfileViewModel.swift`
 
-Tune weight constants in `RuleBasedRecommendationEngine`:
-
-- Hard filter contribution
-- Duration/frequency/experience weights
-- Soft-floor behavior for small candidate sets
-
-### 20.3 Evolve adjustment policy
-
-Modify `RuleBasedPlanAdjustmentService` thresholds for:
-
-- Red trigger criteria
-- Over-fatigue/easy repetition window
-- Volume/intensity progression percentages
-
-## 21. High-Level Data Flow
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant O as OnboardingVM
-    participant HK as HealthKitService
-    participant RE as RecommendationEngine
-    participant PR as PlanRepository
-    participant H as HomeVM
-    participant C as CheckInVM
-    participant PA as PlanAdjustmentService
-    participant G as GamificationService
-
-    U->>O: Fill onboarding + allow Health
-    O->>HK: requestAuthorization + fetchLatestSnapshot
-    O->>RE: recommend(request)
-    RE-->>O: RecommendationResult + WeeklyPlan
-    O->>PR: saveCurrentPlan
-    H->>PR: loadCurrentPlan
-    H->>HK: fetchLatestSnapshot
-    H->>RE: regenerate if recalibration needed
-    U->>C: Submit check-in
-    C->>PA: evaluate(check-in, recent, plan, alternatives, health)
-    PA-->>C: SuitabilityAssessment + UpdatedPlan
-    C->>G: evaluate(check-in, badgeState)
-    C->>PR: save updated plan
-```
-
----
-
-If you want, next step can be a "Developer Handbook v2" version that includes:
-
-- exact API contract examples for each protocol
-- JSON schema documentation for `exercise_seed_data_v2.json`
-- migration checklist for production launch (Firebase + analytics + tests + CI/CD)

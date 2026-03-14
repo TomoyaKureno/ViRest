@@ -9,9 +9,11 @@ enum PreviewSupport {
     }
 
     static func makeAuthViewModel() -> AuthViewModel {
-        AuthViewModel(
+        let container = AppContainer(inMemory: true)
+        return AuthViewModel(
             authService: PreviewAuthService(),
-            onAuthenticated: { }
+            onAuthenticated: { },
+            firestoreUserRepository: container.firestoreUserRepository
         )
     }
 
@@ -23,6 +25,8 @@ enum PreviewSupport {
             healthService: PreviewHealthDataService(),
             recommendationEngine: container.recommendationEngine,
             notificationService: PreviewNotificationService(),
+            firestoreUserRepository: container.firestoreUserRepository,
+            authService: PreviewAuthService(),
             onCompleted: { }
         )
     }

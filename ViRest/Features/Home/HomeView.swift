@@ -5,106 +5,199 @@ struct HomeView: View {
     @State private var checkInSheetVM: CheckInSheetViewModel?
     @State private var pendingConfirmSport: FirestoreSportEntry?
 
-    init(viewModel: HomeViewModel) { self.viewModel = viewModel }
+    init(viewModel: HomeViewModel) {
+        self.viewModel = viewModel
+    }
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                AppGradientBackground()
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 24) {
+                    VStack(alignment: .leading) {
+                        HStack(spacing: 16) {
+                            ZStack {
+                                Image(systemName: "person.fill")
+                                    .foregroundStyle(.richBlack)
+                                    .font(.largeTitle)
+                            }
+                            .padding()
+                            .background(.gray)
+                            .clipShape(Circle())
 
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 14) {
-                        titleCard
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(viewModel.currentTitle.isEmpty ? "Starter" : viewModel.currentTitle)
+                                    .font(AppTypography.caption(14))
+                                    .foregroundStyle(AppPalette.textSecondary)
+
+                                Text(viewModel.profileName)
+                                    .font(AppTypography.hero(24))
+                                    .foregroundStyle(AppPalette.textPrimary)
+                            }
+                        }
+
+                        VStack {
+                            HStack(spacing: 24) {
+                                VStack(spacing: 6) {
+                                    HStack {
+                                        Image(systemName: "heart.fill")
+                                            .foregroundStyle(.vibrantGreen)
+
+                                        Text(viewModel.currentRestingHRText)
+                                            .font(AppTypography.caption(16).bold())
+                                            .foregroundStyle(AppPalette.textPrimary)
+                                    }
+
+                                    Text("Resting HR")
+                                        .font(AppTypography.caption(14))
+                                        .foregroundStyle(AppPalette.textPrimary)
+                                }
+
+                                Divider()
+                                    .overlay(.vibrantGreen)
+
+                                VStack(spacing: 6) {
+                                    HStack {
+                                        Image(systemName: "scalemass.fill")
+                                            .foregroundStyle(.vibrantGreen)
+
+                                        Text(viewModel.currentWeightText)
+                                            .font(AppTypography.caption(16).bold())
+                                            .foregroundStyle(AppPalette.textPrimary)
+                                    }
+
+                                    Text("Body Weight")
+                                        .font(AppTypography.caption(14))
+                                        .foregroundStyle(AppPalette.textPrimary)
+                                }
+
+                                Divider()
+                                    .overlay(.vibrantGreen)
+
+                                VStack(spacing: 6) {
+                                    HStack {
+                                        Image(systemName: "ruler.fill")
+                                            .foregroundStyle(.vibrantGreen)
+                                            .rotationEffect(.degrees(90))
+
+                                        Text(viewModel.currentHeightText)
+                                            .font(AppTypography.caption(16).bold())
+                                            .foregroundStyle(AppPalette.textPrimary)
+                                    }
+
+                                    Text("Height")
+                                        .font(AppTypography.caption(14))
+                                        .foregroundStyle(AppPalette.textPrimary)
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+
+                    VStack(alignment: .leading) {
+                        Text("Sport Recommendations")
+                            .font(AppTypography.hero(24))
+                            .foregroundStyle(AppPalette.textPrimary)
 
                         if viewModel.isLoading {
                             ProgressView().tint(.white).padding(.top, 40)
                         } else if viewModel.sports.isEmpty {
                             emptyCard
                         } else {
-                            ForEach(viewModel.sports) { sport in
-                                SportCheckInCard(sport: sport) {
-                                    // Tap '+' → show confirmation first
-                                    pendingConfirmSport = sport
+                            VStack(spacing: 16) {
+                                ForEach(viewModel.sports) { sport in
+                                    SportCheckInCard(sport: sport) {
+                                        pendingConfirmSport = sport
+                                    }
                                 }
                             }
                         }
-
-                        if let msg = viewModel.checkInSuccess {
-                            successBanner(msg)
-                        }
                     }
-                    .padding(16)
-                    .padding(.bottom, 22)
+
+                    if let msg = viewModel.checkInSuccess {
+                        successBanner(msg)
+                    }
                 }
+                .padding(16)
+                .padding(.bottom, 22)
             }
-            .navigationTitle("Weekly Plan")
+            .background(.richBlack)
+            .navigationTitle("Virest")
             .toolbarTitleDisplayMode(.inline)
             .task { viewModel.load() }
+            .overlay {
+                if let pendingSport = pendingConfirmSport {
+                    ZStack {
+                        Color.black.opacity(0.45)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                pendingConfirmSport = nil
+                            }
 
-            // ── Step 1: Confirmation alert
-            .confirmationDialog(
-                "Log a session?",
-                isPresented: Binding(
-                    get: { pendingConfirmSport != nil },
-                    set: { if !$0 { pendingConfirmSport = nil } }
-                ),
-                titleVisibility: .visible
-            ) {
-                Button("Yes, I completed this session") {
-                    if let sport = pendingConfirmSport {
-                        let vm = viewModel.makeCheckInSheetViewModel(for: sport)
-                        checkInSheetVM = vm
-                        pendingConfirmSport = nil
+                        activityConfirmationPopup(for: pendingSport)
                     }
                 }
-                Button("Cancel", role: .cancel) {
-                    pendingConfirmSport = nil
-                }
-            } message: {
-                if let sport = pendingConfirmSport {
-                    Text("Did you complete a \(sport.displayName) session?")
-                }
             }
-
-            // ── Step 2: Check-in sheet (only opens after confirmation)
             .sheet(item: $checkInSheetVM) { vm in
                 CheckInSheetView(viewModel: vm)
             }
-
             .alert("Error", isPresented: Binding(
                 get: { viewModel.errorMessage != nil },
                 set: { _ in viewModel.errorMessage = nil }
             )) {
-                Button("OK", role: .cancel) { }
+                Button("OK", role: .cancel) {}
             } message: {
                 Text(viewModel.errorMessage ?? "")
             }
         }
     }
 
-    // ── Title card
-    private var titleCard: some View {
-        SurfaceCard {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Your title")
-                        .font(AppTypography.caption(12))
-                        .foregroundStyle(AppPalette.textSecondary)
-                    Text(viewModel.currentTitle.isEmpty ? "Rookie" : viewModel.currentTitle)
-                        .font(AppTypography.hero(28))
-                        .foregroundStyle(AppPalette.textPrimary)
+    private func activityConfirmationPopup(for sport: FirestoreSportEntry) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Confirm Activity")
+                .font(AppTypography.title(22))
+                .foregroundStyle(.white)
+
+            Text("Have you completed a \(sport.displayName) session?")
+                .font(AppTypography.body(15))
+                .foregroundStyle(Color.white.opacity(0.82))
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(spacing: 16) {
+                Button {
+                    let vm = viewModel.makeCheckInSheetViewModel(for: sport)
+                    checkInSheetVM = vm
+                    pendingConfirmSport = nil
+                } label: {
+                    Text("Yes, I completed this activity")
+                        .font(AppTypography.body(15).bold())
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(AppPalette.accent)
+                        .clipShape(Capsule())
                 }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("\(viewModel.firestoreUser?.totalActionsCompleted ?? 0)")
-                        .font(AppTypography.hero(28))
-                        .foregroundStyle(AppPalette.accent)
-                    Text("total sessions")
-                        .font(AppTypography.caption(12))
-                        .foregroundStyle(AppPalette.textSecondary)
+                
+                Button {
+                    pendingConfirmSport = nil
+                } label: {
+                    Text("Cancel")
+                        .font(AppTypography.body(15).bold())
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.white.opacity(0.14))
+                        .clipShape(Capsule())
                 }
             }
         }
+        .padding(18)
+        .frame(maxWidth: 360)
+        .background(Color.richBlack.opacity(0.97))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+        )
     }
 
     private var emptyCard: some View {
@@ -113,7 +206,7 @@ struct HomeView: View {
                 Image(systemName: "waveform.path.ecg")
                     .font(.system(size: 36))
                     .foregroundStyle(AppPalette.accent)
-                Text("No plan yet")
+                Text("No sports recommended yet")
                     .font(AppTypography.title(20))
                     .foregroundStyle(AppPalette.textPrimary)
                 Text("Complete onboarding to get your personalised sport recommendations.")
@@ -152,12 +245,14 @@ private struct HomePreviewHost: View {
         let seededContainer = PreviewSupport.makeSeededContainer()
         self.container = seededContainer
         self.viewModel = HomeViewModel(
+            firestoreUserRepository: seededContainer.firestoreUserRepository,
             userProfileRepository: seededContainer.userProfileRepository,
-            planRepository: seededContainer.planRepository,
-            checkInRepository: seededContainer.checkInRepository,
+            authService: seededContainer.authService,
             healthService: seededContainer.healthService,
-            recommendationEngine: seededContainer.recommendationEngine,
-            notificationService: seededContainer.notificationService
+            notificationService: seededContainer.notificationService,
+            gamificationService: seededContainer.gamificationService,
+            badgeRepository: seededContainer.badgeStateRepository,
+            planAdjustmentService: seededContainer.planAdjustmentService
         )
     }
 

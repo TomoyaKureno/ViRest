@@ -79,6 +79,8 @@ final class CheckInSheetViewModel: ObservableObject {
         }
 
         do {
+            let resolvedActivity = activityType(for: sport.displayName)
+
             // 1. Record check-in counter in Firestore
             try await firestoreUserRepository.recordCheckIn(
                 userId: user.id,
@@ -93,27 +95,11 @@ final class CheckInSheetViewModel: ObservableObject {
                 durationMinutes: sport.durationMinutes
             )
 
-            // 3. Update title if earned
-            let updatedUser = try await firestoreUserRepository.loadUser(userId: user.id)
-            let totalActions = updatedUser?.totalActionsCompleted ?? 0
-            try await firestoreUserRepository.updateTitleIfNeeded(
-                userId: user.id,
-                totalActions: totalActions
-            )
-
-            // 4. Check if a new title was earned
-            let reloadedUser = try await firestoreUserRepository.loadUser(userId: user.id)
-            if let titleId = reloadedUser?.currentTitleId, !titleId.isEmpty {
-                let db = FirestoreDB.shared
-                let titleName = await db.fetchTitleName(titleId: titleId)
-                newTitleName = titleName
-            }
-
-            // 5. Evaluate gamification (badges) via existing service
+            // 3. Evaluate gamification (badges + level title) via existing service
             let fakeCheckIn = SessionCheckIn(
                 sessionId: UUID(),
                 checkInDate: Date(),
-                activity: .walking, // placeholder — badges use completedSessions count
+                activity: resolvedActivity,
                 actualDurationMinutes: sport.durationMinutes,
                 activityDifficulty: difficulty,
                 fatigueLevel: fatigue,
@@ -126,12 +112,14 @@ final class CheckInSheetViewModel: ObservableObject {
             try badgeRepository.saveState(gamification.updatedState)
             appreciationText = gamification.appreciationMessage
             newBadges = gamification.newlyEarnedBadges
+            let levelIncreased = gamification.updatedState.level.rawValue > existingState.level.rawValue
+            newTitleName = levelIncreased ? gamification.updatedState.level.title : nil
 
-            // 6. Build suitability assessment from answers
+            // 4. Build suitability assessment from answers
             assessment = buildAssessment()
 
-            // 7. Schedule notifications
-            notificationService.scheduleTargetAchievedNotification(for: .walking)
+            // 5. Schedule notifications
+            notificationService.scheduleTargetAchievedNotification(for: resolvedActivity)
 
             isLoading = false
             state = .result
@@ -190,22 +178,43 @@ final class CheckInSheetViewModel: ObservableObject {
             recommendationText: recommendationText
         )
     }
-}
 
-// Small helper to fetch title name without coupling to Firestore in the VM
-import FirebaseFirestore
-
-final class FirestoreDB {
-    static let shared = FirestoreDB()
-    private let db = Firestore.firestore()
-
-    func fetchTitleName(titleId: String) async -> String {
-        do {
-            let snapshot = try await db.collection("titles").document(titleId).getDocument()
-            let title = try snapshot.data(as: FirestoreTitle.self)
-            return title.name
-        } catch {
-            return titleId.replacingOccurrences(of: "_", with: " ").capitalized
+    private func activityType(for sportName: String) -> ActivityType {
+        switch normalizedToken(sportName) {
+        case normalizedToken("Brisk walking"): return .briskWalking
+        case normalizedToken("Trail walking"): return .trailWalking
+        case normalizedToken("Nordic walking"): return .nordicWalking
+        case normalizedToken("Flat walking"): return .flatWalking
+        case normalizedToken("Walking"): return .walkingGeneral
+        case normalizedToken("Interval walking"): return .intervalWalking
+        case normalizedToken("Jogging"): return .jogging
+        case normalizedToken("Run-walk intervals"): return .runWalkIntervals
+        case normalizedToken("Road cycling"): return .roadCycling
+        case normalizedToken("Stationary cycling"): return .stationaryCycling
+        case normalizedToken("Recumbent cycling"): return .recumbentCycling
+        case normalizedToken("Elliptical trainer"): return .ellipticalTrainer
+        case normalizedToken("Rowing machine"): return .rowingMachineCardio
+        case normalizedToken("Lap swimming"): return .lapSwimming
+        case normalizedToken("Dance cardio"): return .danceCardio
+        case normalizedToken("Stair climber"): return .stairClimber
+        case normalizedToken("Stair walking"): return .stairWalking
+        case normalizedToken("Pool walking"): return .poolWalking
+        case normalizedToken("Aqua jogging"): return .aquaJogging
+        case normalizedToken("Vinyasa yoga"): return .vinyasaYoga
+        case normalizedToken("Yoga"): return .yoga
+        case normalizedToken("Restorative yoga"): return .restorativeYoga
+        case normalizedToken("Chair marching"): return .chairMarching
+        case normalizedToken("Chair aerobics"): return .chairAerobics
+        case normalizedToken("Tai chi"): return .taiChi
+        default: return .walking
         }
+    }
+
+    private func normalizedToken(_ value: String) -> String {
+        value
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "_", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+            .lowercased()
     }
 }

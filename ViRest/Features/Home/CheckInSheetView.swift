@@ -10,6 +10,7 @@ import SwiftUI
 struct CheckInSheetView: View {
     @ObservedObject var viewModel: CheckInSheetViewModel
     @Environment(\.dismiss) private var dismiss
+    @State private var sheetHeight: CGFloat = 560
 
     var body: some View {
         ZStack {
@@ -32,9 +33,17 @@ struct CheckInSheetView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 40)
+                .onIntrinsicHeightChange { contentHeight in
+                    sheetHeight = SheetSizing.fittedHeight(
+                        from: contentHeight,
+                        minHeight: 340,
+                        maxFraction: 0.88,
+                        extra: 24
+                    )
+                }
             }
         }
-        .presentationDetents([.large])
+        .presentationDetents([.height(sheetHeight)])
         .presentationDragIndicator(.hidden)
     }
 
@@ -113,34 +122,29 @@ struct CheckInSheetView: View {
                     .multilineTextAlignment(.center)
             }
 
-            // Submit button
+            
             Button {
                 viewModel.submit()
             } label: {
-                HStack(spacing: 10) {
+                
+                HStack {
+                    Text(viewModel.isLoading ? "Saving..." : "Submit Check-In")
+                        .font(AppTypography.body(15).bold())
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(AppPalette.accent)
+                        .clipShape(Capsule())
+                    
                     if viewModel.isLoading {
                         ProgressView().tint(.white).scaleEffect(0.85)
                     }
-                    Text(viewModel.isLoading ? "Saving..." : "Submit Check-In")
-                        .font(AppTypography.body(16))
-                        .fontWeight(.semibold)
                 }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(
-                    LinearGradient(
-                        colors: [AppPalette.auroraA, AppPalette.auroraB],
-                        startPoint: .leading, endPoint: .trailing
-                    )
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .disabled(viewModel.isLoading)
         }
     }
 
-    // ─── RESULT ─────────────────────────────────────
     private var resultContent: some View {
         VStack(spacing: 20) {
             // Zone indicator
@@ -233,7 +237,6 @@ struct CheckInSheetView: View {
         }
     }
 
-    // ─── HELPERS ────────────────────────────────────
     private func questionCard(title: String, icon: String, content: () -> AnyView) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(title, systemImage: icon)
